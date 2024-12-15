@@ -1,0 +1,77 @@
+﻿@using SuperStatus.Configuration
+@inject StatusApiClient StatusApi
+@rendermode InteractiveServer
+@implements IAsyncDisposable
+
+<FluentGrid Spacing=0 Justify="JustifyContent.Center">
+    <FluentGridItem xs="0" sm="2" md="3">
+    </FluentGridItem>
+    <FluentGridItem xs="12" sm="8" md="6">
+        <FluentGrid Spacing=1>
+            @if (statusCheckSet == null)
+            {
+                <FluentGridItem xs="12">
+                    <div>Loading...</div>
+                </FluentGridItem>
+
+            }
+            else
+            {
+                foreach (var statusCheck in statusCheckSet)
+                {
+                    <FluentGridItem xs="12">
+                        <StatusCheckOverviewCard statusCheck="statusCheck" />
+                    </FluentGridItem>
+                }
+            }
+        </FluentGrid>
+    </FluentGridItem>
+    <FluentGridItem xs="0" sm="2" md="3">
+    </FluentGridItem>
+</FluentGrid>
+
+@code {
+    private List<StatusCheckViewModel>? statusCheckSet;
+    private PeriodicTimer? timer;
+    private CancellationTokenSource cts = new CancellationTokenSource();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadStatusChecksAsync();
+
+        timer = new PeriodicTimer(TimeSpan.FromSeconds(SuperStatusConfig.StatusCheckViewRefreshIntervalInSeconds));
+
+        _ = UpdateDataAsync();
+    }
+
+    private async Task UpdateDataAsync()
+    {
+        try
+        {
+            while (await timer!.WaitForNextTickAsync(cts.Token))
+            {
+                await LoadStatusChecksAsync();
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Handle cancellation if needed
+        }
+    }
+
+    private async Task LoadStatusChecksAsync()
+    {
+        statusCheckSet = await StatusApi.GetStatusAsync();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (timer is not null)
+        {
+            cts.Cancel();
+            timer.Dispose();
+            cts.Dispose();
+        }
+    }
+}

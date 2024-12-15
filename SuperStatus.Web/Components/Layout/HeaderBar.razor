@@ -1,0 +1,30 @@
+﻿@using SuperStatus.Configuration
+<FluentHeader Appearance="Appearance.Accent">
+    <FluentStack Style="height:100%">
+       @if (HasLogo)
+        {
+            <FluentStack Style="height:100%" Orientation="Orientation.Horizontal" VerticalAlignment="VerticalAlignment.Bottom">
+                <img src="@LogoUrl" style='max-height: 100%; object-fit: contain' />
+                <FluentLabel Typo="Typography.Body">@Description</FluentLabel>
+            </FluentStack>
+        }
+        else
+        {
+            <div>SuperStatus</div>
+        }
+
+    </FluentStack>
+</FluentHeader>
+
+@code{
+
+        public string? Description { get; set; }
+        public string? LogoUrl { get; set; }
+        public bool HasLogo => !string.IsNullOrWhiteSpace(LogoUrl);
+        protected override void OnInitialized()
+        {
+             LogoUrl = SuperStatusConfig.LogoUrl;
+             Description = SuperStatusConfig.Description;
+        }
+    
+}

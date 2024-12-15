@@ -1,0 +1,71 @@
+﻿@using Microsoft.FluentUI.AspNetCore.Components.DesignTokens
+@using SuperStatus.Data.Entities
+@inject StatusApiClient StatusApi
+<div class="wrapper">
+    @if (historicalStatusCheckData != null)
+    {
+
+        foreach (var historicalStatusDataDay in historicalStatusCheckData)
+        {
+            string statusCheckAnchorString = GetAnchorString(historicalStatusDataDay);
+            string barColor = GetBarColor(historicalStatusDataDay);
+
+            <div id="@statusCheckAnchorString" class="chartbar" style="width: calc(100% / @(historicalStatusCheckData.Count) - 4px); background-color:@(barColor)"></div>
+
+            <FluentTooltip Anchor="@statusCheckAnchorString" HideTooltipOnCursorLeave="true" Position=TooltipPosition.Top Delay=200>
+                @(historicalStatusDataDay.Date) had
+                @(historicalStatusDataDay.FailedResponseCount) times failed,
+                @(historicalStatusDataDay.SlowResponseCount) times slow and
+                @(historicalStatusDataDay.UnreachableCount) times unreachable
+            </FluentTooltip>
+
+        }
+
+    }
+</div>
+@if (historicalStatusCheckData.Any())
+{
+    <FluentGrid>
+        <FluentGridItem xs="6" sm="6">
+            <FluentLabel Typo="Typography.Body">@historicalStatusCheckData.First().Date</FluentLabel>
+        </FluentGridItem>
+        <FluentGridItem xs="6" sm="6" Justify="JustifyContent.FlexEnd">
+            <FluentLabel Typo="Typography.Body">@historicalStatusCheckData.Last().Date</FluentLabel>
+        </FluentGridItem>
+    </FluentGrid>
+}
+
+@code
+{
+    [Parameter, EditorRequired]
+    public required StatusCheckViewModel statusCheck { get; set; }
+
+    private List<HistoricalStatusDataOverviewChartViewModel> historicalStatusCheckData { get; set; } = new List<HistoricalStatusDataOverviewChartViewModel>();
+    private ElementReference MainContainerRef;
+
+    protected async override Task OnInitializedAsync()
+    {
+        historicalStatusCheckData = await StatusApi.GetHistoricalStatusData(statusCheck.Id);
+    }
+
+    private string GetAnchorString(HistoricalStatusDataOverviewChartViewModel historicalStatusDataDay)
+    {
+        return $"StatusCheck_{statusCheck.Id}_{historicalStatusDataDay.Date.ToString("MM_dd_yyyy")}";
+    }
+
+    private string GetBarColor(HistoricalStatusDataOverviewChartViewModel historicalStatusDataDay)
+    {
+        if (historicalStatusDataDay.FailedStatus)
+        {
+            return "var(--error)";
+        }
+        else if (historicalStatusDataDay.SlowResponse) //TODO: include slow response from appsettings!
+        {
+            return "var(--warning)";
+        }
+        else
+        {
+            return "var(--success)";
+        }
+    }
+}

@@ -1,0 +1,67 @@
+﻿@using Humanizer
+@using SuperStatus.Data.Constants
+@rendermode InteractiveServer
+<FluentCard>
+    <FluentGrid>
+        <FluentGridItem xs="6" sm="6">
+            <FluentStack VerticalGap="20" Orientation="Orientation.Vertical" HorizontalAlignment="HorizontalAlignment.Start" VerticalAlignment="VerticalAlignment.Center">
+                <FluentPersona Name="@statusCheck.Title"
+                               ChildContent="@(builder =>
+                               {
+                                   builder.OpenElement(0, "h4");
+                                   builder.AddContent(1, statusCheck.Title);
+                                   builder.CloseElement();
+                               })"
+                               Status="@StatusCheckIcon"
+                               StatusSize="PresenceBadgeSize.Medium"
+                               StatusTitle="-"
+                               Image="@(!string.IsNullOrWhiteSpace(statusCheck.ServiceLogoUrl) ? statusCheck.ServiceLogoUrl : new Icons.Regular.Size48.DesktopPulse().ToDataUri(size: " 32px", color: "white"))"
+                               ImageSize="50px">
+                </FluentPersona>
+                <FluentLabel Typo="Typography.Body">@statusCheck.Description</FluentLabel>
+            </FluentStack>
+        </FluentGridItem>
+        <FluentGridItem xs="6" sm="6" Justify="JustifyContent.FlexEnd">
+            <FluentBadge Appearance="Appearance.Accent" slot="end">Last checked @LastCheckTimeAgo (@statusCheck.MostRecentHistoricalStatusCheck?.TimeOfCheckUTC)</FluentBadge>
+        </FluentGridItem>
+    </FluentGrid>
+    <StatusCheckHistoricalGraph statusCheck="statusCheck" />
+</FluentCard>
+
+
+@code
+{
+    [Parameter]
+    public required StatusCheckViewModel statusCheck { get; set; }
+
+    private PresenceStatus StatusCheckIcon { get; set; } = PresenceStatus.Unknown;
+    private string LastCheckTimeAgo { get; set; } = "Not checked, yet";
+
+    protected override void OnParametersSet()
+    {
+        GetStatusIcon();
+    }
+
+    private void GetStatusIcon()
+    {
+        if (statusCheck.MostRecentHistoricalStatusCheck != null)
+        {
+            switch (statusCheck.MostRecentHistoricalStatusCheck.FailType)
+            {
+                case FailType.NoFail:
+                    StatusCheckIcon = PresenceStatus.Available;
+                    break;
+                case FailType.StatusCode:
+                    StatusCheckIcon = PresenceStatus.Busy;
+                    break;
+                case FailType.ResponseTime:
+                    StatusCheckIcon = PresenceStatus.Away;
+                    break;
+                case FailType.Unreachable:
+                    StatusCheckIcon = PresenceStatus.Offline;
+                    break;
+            }
+            LastCheckTimeAgo = statusCheck.MostRecentHistoricalStatusCheck.TimeOfCheckUTC.Humanize();
+        }
+    }
+}

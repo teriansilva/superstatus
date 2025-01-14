@@ -396,3 +396,5 @@ FodyWeavers.xsd
 
 # JetBrains Rider
 *.sln.iml
+/SuperStatus.ApiService/Database/superstatus.db-shm
+/SuperStatus.ApiService/Database/superstatus.db-wal

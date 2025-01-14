@@ -35,6 +35,10 @@ namespace SuperStatus.Services
             this.logger = logger;
         }
 
+        /// <summary>
+        /// Load status checks from configuration
+        /// </summary>
+        /// <returns><see cref="List<StatusCheck>"/></returns>
         public List<StatusCheck> LoadStatusCheckFromConfig()
         {
             return SuperStatusConfig.LoadStatusChecksFromConfiguration();

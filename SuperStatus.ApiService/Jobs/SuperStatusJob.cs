@@ -17,9 +17,9 @@ namespace SuperStatus.Scheduler
         }
         public async Task Execute(IJobExecutionContext context)
         {
-            var statusCheckList = statusCheckService.LoadStatusCheckFromConfig();
-            logger.LogInformation($"Executing status check for {statusCheckList.Count} endpoints...");
-            foreach (StatusCheck statusCheck in statusCheckList)
+            IPagedResult<StatusCheck> statusCheckList = await statusCheckService.GetStatusCheckSet();
+            logger.LogInformation($"Executing status check for {statusCheckList.Results.Count} endpoints...");
+            foreach (StatusCheck statusCheck in statusCheckList.Results)
             {
                 logger.LogInformation($"Executing status check for {statusCheck.Title}...");
                 HistoricalStatusData statusCheckResult = await statusCheckService.ExecuteStatusCheck(statusCheck);

@@ -1,5 +1,6 @@
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.OpenApi.Models;
+using Microsoft.IdentityModel.Tokens;
 using SuperStatus.ApiService.Configuration;
 using SuperStatus.Configuration;
 using SuperStatus.Data.Repositories;
@@ -13,6 +14,25 @@ builder.AddServiceDefaults();
 // Add services to the container.
 builder.Services.AddProblemDetails();
 
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme =
+        JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme =
+        JwtBearerDefaults.AuthenticationScheme;
+
+}).AddJwtBearer(options =>
+{
+    options.Authority = Environment.GetEnvironmentVariable(
+        "IDP_HTTP");
+    options.RequireHttpsMetadata = false;
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateAudience = false
+    };
+});
+
+builder.Services.AddAuthorization();
 builder.Services.AddApplicationServices(builder);
 
 builder.Services.AddEndpointsApiExplorer();
@@ -23,16 +43,25 @@ var app = builder.Build();
 // Configure the HTTP request pipeline.
 app.UseExceptionHandler();
 
+// crete db
 Directory.CreateDirectory("Database");
 using (var scope = app.Services.CreateAsyncScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<SuperStatusContext>();
     await dbContext.Database.MigrateAsync();
+    // Seed the database
+    var seeder = scope.ServiceProvider.GetRequiredService<SuperStatusSeeder>();
+    await seeder.SeedAsync();
 }
 
 app.MapGet("/statuscheck", async (IStatusCheckService statusCheckService) =>
 {
-    return await statusCheckService.GetStatusCheckViewModelSet();
+    var statusCheck = await statusCheckService.GetStatusCheckViewModelSet();
+    if(statusCheck.Count == 0)
+    {
+        return Results.NotFound("No status checks found.");
+    }
+    return Results.Ok(statusCheck);
 });
 
 app.MapGet("/historicalStatusData/{id}", async (int id, IStatusCheckService statusCheckService) =>
@@ -47,5 +76,8 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.Run();

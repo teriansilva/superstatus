@@ -13,10 +13,9 @@ namespace SuperStatus.Services
 {
     public interface IStatusCheckService
     {
-        List<StatusCheck> LoadStatusCheckFromConfig();
-        StatusCheck? LoadSpecificStatusCheckFromConfig(long statusCheckId);
-        IPagedResult<StatusCheck> GetStatusCheckSet(int page, int pageSize = 0);
-        Task<List<StatusCheckViewModel>> GetStatusCheckViewModelSet();
+        Task<IPagedResult<StatusCheck>> GetStatusCheckSet(int page = 1, int pageSize = 0);
+        Task<StatusCheck?> GetStatusCheck(long StatusCheckId);
+        Task<List<StatusCheckViewModel>> GetStatusCheckViewModelSet(int page = 1, int pageSize = 0);
         Task<HistoricalStatusDataViewModel?> GetMostRecentHistoricalStatusData(long statusCheckId);
         Task<IPagedResult<HistoricalStatusData>> GetPagedHistoricalStatusDataForStatusCheckId(long statusCheckId, int page, int pageSize = 0);
         Task<IDictionary<DateTime, List<HistoricalStatusData>>> GetHistoricalStatusDataForStatusCheckIdByDays(long statusCheckId, int timeRangeInDays, int maxBatchSize);
@@ -35,48 +34,33 @@ namespace SuperStatus.Services
             this.logger = logger;
         }
 
-        /// <summary>
-        /// Load status checks from configuration
-        /// </summary>
-        /// <returns><see cref="List<StatusCheck>"/></returns>
-        public List<StatusCheck> LoadStatusCheckFromConfig()
+        public async Task<IPagedResult<StatusCheck>> GetStatusCheckSet(int page = 1, int pageSize = 0)
         {
-            return SuperStatusConfig.LoadStatusChecksFromConfiguration();
+            return await repository.GetStatusCheckSet(page, pageSize);
         }
 
-        public StatusCheck LoadSpecificStatusCheckFromConfig(long statusCheckId)
+        public async Task<StatusCheck?> GetStatusCheck(long StatusCheckId)
         {
-            StatusCheck? statusCheck = SuperStatusConfig.LoadStatusChecksFromConfiguration().FirstOrDefault(x => x.Id == statusCheckId);
-            if(statusCheck == null)
-            {
-                logger.LogInformation($"Failed to find status check with id {statusCheckId}");
-                throw new Exception($"Failed to find status check with id {statusCheckId}");
-            }
-            return statusCheck;
+            return await repository.GetStatusCheckById(StatusCheckId);
         }
 
-        public IPagedResult<StatusCheck> GetStatusCheckSet(int page, int pageSize = 0)
+        public async Task<List<StatusCheckViewModel>> GetStatusCheckViewModelSet(int page = 1, int pageSize = 0)
         {
-            //TODO: Implement DB entities
-            throw new NotImplementedException();
-        }
-
-        public async Task<List<StatusCheckViewModel>> GetStatusCheckViewModelSet()
-        {
-            List<StatusCheck> statusCheckSet = LoadStatusCheckFromConfig();
+            IPagedResult<StatusCheck> statusCheckSet = await GetStatusCheckSet(page, pageSize);
             List<StatusCheckViewModel> statusCheckViewModelSet = new List<StatusCheckViewModel>();
-            foreach(var statusCheck in statusCheckSet)
+            foreach (var statusCheck in statusCheckSet.Results)
             {
                 var mostRecentHistoricalStatusData = await GetMostRecentHistoricalStatusData(statusCheck.Id);
                 statusCheckViewModelSet.Add(new StatusCheckViewModel(statusCheck, mostRecentHistoricalStatusData));
             }
+
             return statusCheckViewModelSet;
         }
 
         public async Task<HistoricalStatusDataViewModel?> GetMostRecentHistoricalStatusData(long statusCheckId)
         {
             HistoricalStatusData? mostRecentHistoricalStatusData = await repository.GetMostRecentHistoricalStatusData(statusCheckId);
-            StatusCheck statusCheck = LoadSpecificStatusCheckFromConfig(statusCheckId);
+            StatusCheck? statusCheck = await GetStatusCheck(statusCheckId);
             return mostRecentHistoricalStatusData != null ? new HistoricalStatusDataViewModel(mostRecentHistoricalStatusData, CalculateFailTypeOfHistoricalStatusData(statusCheck, mostRecentHistoricalStatusData)) : null;
         }
 
@@ -92,7 +76,7 @@ namespace SuperStatus.Services
         {
             DateTime referenceTime = DateTime.UtcNow;
             DateOnly currentDate = DateOnly.FromDateTime(referenceTime);
-            StatusCheck statusCheck = LoadSpecificStatusCheckFromConfig(statusCheckId);
+            StatusCheck statusCheck = await GetStatusCheck(statusCheckId);
 
             if (statusCheck == null)
             {

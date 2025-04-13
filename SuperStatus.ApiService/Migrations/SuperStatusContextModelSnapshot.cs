@@ -69,6 +69,51 @@ namespace SuperStatus.ApiService.Migrations
                     b.ToTable("HistoricalStatusDataSet");
                 });
 
+            modelBuilder.Entity("SuperStatus.Data.Entities.StatusCheck", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Enabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("ExpectedResponseTimeInMs")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ExpectedStatusCode")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsWebHookOnErrorEnabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ServiceLogoUrl")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("StatusCheckUrl")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ThrottleWebHookToExecuteOnlyEveryXMinutes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("WebHookOnErrorUrl")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("StatusCheckSet");
+                });
+
             modelBuilder.Entity("SuperStatus.Data.Entities.HistoricalStatusAction", b =>
                 {
                     b.HasOne("SuperStatus.Data.Entities.HistoricalStatusData", "HistoricalStatusData")

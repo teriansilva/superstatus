@@ -51,13 +51,5 @@ namespace SuperStatus.Configuration
             return configuration.GetSection(key)?.Value ?? string.Empty;
         }
 
-        public static List<StatusCheck> LoadStatusChecksFromConfiguration()
-        {
-            var configSection = configuration.GetSection("SuperStatusCheckConfig");
-            var statusChecks = new List<StatusCheck>();
-            configSection.Bind(statusChecks);
-            return statusChecks;
-        }
-
     }
 }

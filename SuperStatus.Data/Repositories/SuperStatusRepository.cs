@@ -6,6 +6,8 @@ namespace SuperStatus.Data.Repositories
 {
     public interface ISuperStatusRepository : IBaseRepository
     {
+        Task<IPagedResult<StatusCheck>> GetStatusCheckSet(int page = 1, int pageSize = 0);
+        Task<StatusCheck?> GetStatusCheckById(long statusCheckId);
         Task<HistoricalStatusData?> GetMostRecentHistoricalStatusData(long statusCheckId);
         Task<HistoricalStatusAction?> GetMostRecentHistoricalStatusAction(long statusCheckId);
         Task<IPagedResult<HistoricalStatusData>> GetHistoricalStatusDataSetForStatusCheckId(long statusCheckId, int page = 1, int pageSize = 0);
@@ -23,6 +25,17 @@ namespace SuperStatus.Data.Repositories
         }
 
         #region GetData
+
+        public async Task<IPagedResult<StatusCheck>> GetStatusCheckSet(int page = 1, int pageSize = 0)
+        {
+            return await context.StatusCheckSet.OrderByDescending(x => x.Title).GetPagedAsync(page, pageSize);
+        }
+
+        public async Task<StatusCheck?> GetStatusCheckById(long statusCheckId)
+        {
+            return await context.StatusCheckSet.FirstOrDefaultAsync(x => x.Id == statusCheckId);
+        }
+
 
         public async Task<HistoricalStatusData?> GetMostRecentHistoricalStatusData(long statusCheckId)
         {

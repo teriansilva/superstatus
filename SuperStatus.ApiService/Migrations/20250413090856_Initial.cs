@@ -29,6 +29,28 @@ namespace SuperStatus.ApiService.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "StatusCheckSet",
+                columns: table => new
+                {
+                    Id = table.Column<long>(type: "INTEGER", nullable: false)
+                        .Annotation("Sqlite:Autoincrement", true),
+                    Title = table.Column<string>(type: "TEXT", nullable: false),
+                    StatusCheckUrl = table.Column<string>(type: "TEXT", nullable: false),
+                    IsWebHookOnErrorEnabled = table.Column<bool>(type: "INTEGER", nullable: false),
+                    WebHookOnErrorUrl = table.Column<string>(type: "TEXT", nullable: false),
+                    ThrottleWebHookToExecuteOnlyEveryXMinutes = table.Column<int>(type: "INTEGER", nullable: false),
+                    ExpectedStatusCode = table.Column<int>(type: "INTEGER", nullable: false),
+                    ExpectedResponseTimeInMs = table.Column<long>(type: "INTEGER", nullable: false),
+                    Description = table.Column<string>(type: "TEXT", nullable: true),
+                    Enabled = table.Column<bool>(type: "INTEGER", nullable: false),
+                    ServiceLogoUrl = table.Column<string>(type: "TEXT", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_StatusCheckSet", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "HistoricalStatusActionSet",
                 columns: table => new
                 {
@@ -61,6 +83,9 @@ namespace SuperStatus.ApiService.Migrations
         {
             migrationBuilder.DropTable(
                 name: "HistoricalStatusActionSet");
+
+            migrationBuilder.DropTable(
+                name: "StatusCheckSet");
 
             migrationBuilder.DropTable(
                 name: "HistoricalStatusDataSet");

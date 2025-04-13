@@ -16,9 +16,7 @@ namespace SuperStatus.Data.Repositories
 
             base.OnModelCreating(modelBuilder);
         }
-
-        //TODO: StatusCheck Data should be stored in the database
-        //public DbSet<StatusCheck> StatusCheckSet { get; set; }
+        public DbSet<StatusCheck> StatusCheckSet { get; set; }
         public DbSet<HistoricalStatusData> HistoricalStatusDataSet { get; set; }
         public DbSet<HistoricalStatusAction> HistoricalStatusActionSet { get; set; }
     }

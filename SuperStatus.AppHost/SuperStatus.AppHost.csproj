@@ -11,6 +11,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\SuperStatus.ApiService\SuperStatus.ApiService.csproj" />
+    <ProjectReference Include="..\SuperStatus.Identity\SuperStatus.Identity.csproj" />
     <ProjectReference Include="..\SuperStatus.Web\SuperStatus.Web.csproj" />
   </ItemGroup>
 

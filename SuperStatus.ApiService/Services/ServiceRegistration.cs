@@ -19,7 +19,7 @@ namespace SuperStatus.Services
             // SQLite Database context
             services.AddDbContext<SuperStatusContext>(options =>
             {
-                options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection"));
+                options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection"), b => b.MigrationsAssembly("SuperStatus.ApiService"));
             });
 
             services.AddHttpClient();

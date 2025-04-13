@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.FluentUI.AspNetCore.Components;
 using SuperStatus.Web;
 using SuperStatus.Web.Components;
@@ -22,6 +24,30 @@ builder.Services.AddHttpClient<StatusApiClient>(client =>
     client.BaseAddress = new("https+http://apiservice");
 });
 
+
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultScheme =
+        CookieAuthenticationDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme =
+        OpenIdConnectDefaults.AuthenticationScheme;
+})
+.AddCookie(CookieAuthenticationDefaults.AuthenticationScheme)
+.AddOpenIdConnect(OpenIdConnectDefaults.AuthenticationScheme, options =>
+{
+    options.SignInScheme = "Cookies";
+    options.Authority = Environment.GetEnvironmentVariable("IDP_HTTP");
+    options.ClientId = "aspNetCoreAuth";
+    options.ClientSecret = "some_secret";
+    options.ResponseType = "code";
+    options.UsePkce = true;
+    options.SaveTokens = true;
+    options.CallbackPath = "/signin-oidc";
+    options.SignedOutCallbackPath = "/signout-callback-oidc";
+    options.RequireHttpsMetadata = false; //Todo: set to true in production
+    options.GetClaimsFromUserInfoEndpoint = true;
+});
+
 var app = builder.Build();
 
 if (!app.Environment.IsDevelopment())
@@ -42,5 +68,10 @@ app.MapRazorComponents<App>()
    .AddInteractiveServerRenderMode();
 
 app.MapDefaultEndpoints();
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapBlazorHub().RequireAuthorization();
 
 app.Run();

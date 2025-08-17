@@ -1,7 +1,6 @@
 ﻿using Quartz;
 using SuperStatus.Data.Entities;
 using SuperStatus.Services;
-using System.Text.Json;
 
 namespace SuperStatus.Scheduler
 {

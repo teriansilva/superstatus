@@ -24,24 +24,16 @@ namespace SuperStatus.Services
         Task<HistoricalStatusData> SaveStatusCheckResult(HistoricalStatusData statusCheckResult);
         Task<HistoricalStatusAction?> RunPostStatusCheckTasks(StatusCheck statusCheck, HistoricalStatusData statusCheckResult);
     }
-    public class StatusCheckService : IStatusCheckService
+    public class StatusCheckService(IStatusCheckRepository statusCheckRepository, IHistoricalStatusDataRepository historicalStatusDataRepository, IHistoricalStatusActionRepository historicalStatusActionRepository, ILogger<StatusCheckService> logger) : IStatusCheckService
     {
-        private readonly ISuperStatusRepository repository;
-        private readonly ILogger<StatusCheckService> logger;
-        public StatusCheckService(ISuperStatusRepository repository, ILogger<StatusCheckService> logger)
-        {
-            this.repository = repository;
-            this.logger = logger;
-        }
-
         public async Task<IPagedResult<StatusCheck>> GetStatusCheckSet(int page = 1, int pageSize = 0)
         {
-            return await repository.GetStatusCheckSet(page, pageSize);
+            return await statusCheckRepository.GetStatusCheckSet(page, pageSize);
         }
 
         public async Task<StatusCheck?> GetStatusCheck(long StatusCheckId)
         {
-            return await repository.GetStatusCheckById(StatusCheckId);
+            return await statusCheckRepository.GetStatusCheckById(StatusCheckId);
         }
 
         public async Task<List<StatusCheckViewModel>> GetStatusCheckViewModelSet(int page = 1, int pageSize = 0)
@@ -59,18 +51,18 @@ namespace SuperStatus.Services
 
         public async Task<HistoricalStatusDataViewModel?> GetMostRecentHistoricalStatusData(long statusCheckId)
         {
-            HistoricalStatusData? mostRecentHistoricalStatusData = await repository.GetMostRecentHistoricalStatusData(statusCheckId);
+            HistoricalStatusData? mostRecentHistoricalStatusData = await historicalStatusDataRepository.GetMostRecentHistoricalStatusData(statusCheckId);
             StatusCheck? statusCheck = await GetStatusCheck(statusCheckId);
             return mostRecentHistoricalStatusData != null ? new HistoricalStatusDataViewModel(mostRecentHistoricalStatusData, CalculateFailTypeOfHistoricalStatusData(statusCheck, mostRecentHistoricalStatusData)) : null;
         }
 
         public async Task<IPagedResult<HistoricalStatusData>> GetPagedHistoricalStatusDataForStatusCheckId(long statusCheckId, int page, int pageSize = 0)
         {
-            return await repository.GetHistoricalStatusDataSetForStatusCheckId(statusCheckId, page, pageSize);
+            return await historicalStatusDataRepository.GetHistoricalStatusDataSetForStatusCheckId(statusCheckId, page, pageSize);
         }
         public async Task<IDictionary<DateTime, List<HistoricalStatusData>>> GetHistoricalStatusDataForStatusCheckIdByDays(long statusCheckId, int timeRangeInDays, int maxBatchSize)
         {
-            return await repository.GetHistoricalStatusDataSetForDaysGroupedByDays(statusCheckId, timeRangeInDays, maxBatchSize);
+            return await historicalStatusDataRepository.GetHistoricalStatusDataSetForDaysGroupedByDays(statusCheckId, timeRangeInDays, maxBatchSize);
         }
         public async Task<List<HistoricalStatusDataOverviewChartViewModel>> GetHistoricalStatusDataOverviewForRecentTimeRange(long statusCheckId, int timeRangeInDays)
         {
@@ -84,7 +76,7 @@ namespace SuperStatus.Services
                 throw new Exception($"Failed to find status check with id {statusCheckId}");
             }
 
-            var dbResults = await repository.GetHistoricalStatusDataFailuresOverviewSetForDaysGroupedByDays(statusCheck, timeRangeInDays);
+            var dbResults = await historicalStatusDataRepository.GetHistoricalStatusDataFailuresOverviewSetForDaysGroupedByDays(statusCheck, timeRangeInDays);
             var historicalStatusDataOverviewSet = new List<HistoricalStatusDataOverviewChartViewModel>();
 
             for (int i = 0; i < timeRangeInDays; i++)
@@ -139,14 +131,7 @@ namespace SuperStatus.Services
 
         public async Task<HistoricalStatusData> SaveStatusCheckResult(HistoricalStatusData statusCheckResult)
         {
-            await repository.AddAsync(statusCheckResult);
-            if (await repository.SaveAllAsync())
-            {
-                return statusCheckResult;
-            }
-
-            logger.LogInformation("Failed to save status check result");
-            throw new Exception("Failed to save status check result");
+            return await historicalStatusDataRepository.AddAndSave(statusCheckResult);
         }
 
         public async Task<HistoricalStatusAction?> RunPostStatusCheckTasks(StatusCheck statusCheck, HistoricalStatusData statusCheckResult)
@@ -203,7 +188,7 @@ namespace SuperStatus.Services
 
         private async Task<bool> IsWebhookThrottleInEffect(StatusCheck statusCheck)
         {
-            HistoricalStatusAction? statusAction = await repository.GetMostRecentHistoricalStatusAction(statusCheck.Id);
+            HistoricalStatusAction? statusAction = await historicalStatusActionRepository.GetMostRecentHistoricalStatusAction(statusCheck.Id);
             if (statusAction == null)
             {
                 return false;

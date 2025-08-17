@@ -1,0 +1,95 @@
+﻿using System;
+using Microsoft.EntityFrameworkCore.Migrations;
+using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+
+#nullable disable
+
+namespace SuperStatus.Data.Migrations.SuperStatusDbMigration
+{
+    /// <inheritdoc />
+    public partial class InitialCreate : Migration
+    {
+        /// <inheritdoc />
+        protected override void Up(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.CreateTable(
+                name: "HistoricalStatusDataSet",
+                columns: table => new
+                {
+                    Id = table.Column<long>(type: "bigint", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    StatusCheckId = table.Column<long>(type: "bigint", nullable: false),
+                    HttpStatusCode = table.Column<int>(type: "integer", nullable: false),
+                    ResponseTimeInMs = table.Column<long>(type: "bigint", nullable: false),
+                    TimeOfCheckUTC = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    CheckFailed = table.Column<bool>(type: "boolean", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_HistoricalStatusDataSet", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "StatusCheckSet",
+                columns: table => new
+                {
+                    Id = table.Column<long>(type: "bigint", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    Title = table.Column<string>(type: "text", nullable: false),
+                    StatusCheckUrl = table.Column<string>(type: "text", nullable: false),
+                    IsWebHookOnErrorEnabled = table.Column<bool>(type: "boolean", nullable: false),
+                    WebHookOnErrorUrl = table.Column<string>(type: "text", nullable: false),
+                    ThrottleWebHookToExecuteOnlyEveryXMinutes = table.Column<int>(type: "integer", nullable: false),
+                    ExpectedStatusCode = table.Column<int>(type: "integer", nullable: false),
+                    ExpectedResponseTimeInMs = table.Column<long>(type: "bigint", nullable: false),
+                    Description = table.Column<string>(type: "text", nullable: true),
+                    Enabled = table.Column<bool>(type: "boolean", nullable: false),
+                    ServiceLogoUrl = table.Column<string>(type: "text", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_StatusCheckSet", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "HistoricalStatusActionSet",
+                columns: table => new
+                {
+                    Id = table.Column<long>(type: "bigint", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    StatusCheckId = table.Column<long>(type: "bigint", nullable: false),
+                    HistoricalStatusDataId = table.Column<long>(type: "bigint", nullable: false),
+                    ActionType = table.Column<int>(type: "integer", nullable: false),
+                    TimeOfExecutionUTC = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_HistoricalStatusActionSet", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_HistoricalStatusActionSet_HistoricalStatusDataSet_Historica~",
+                        column: x => x.HistoricalStatusDataId,
+                        principalTable: "HistoricalStatusDataSet",
+                        principalColumn: "Id");
+                });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_HistoricalStatusActionSet_HistoricalStatusDataId",
+                table: "HistoricalStatusActionSet",
+                column: "HistoricalStatusDataId",
+                unique: true);
+        }
+
+        /// <inheritdoc />
+        protected override void Down(MigrationBuilder migrationBuilder)
+        {
+            migrationBuilder.DropTable(
+                name: "HistoricalStatusActionSet");
+
+            migrationBuilder.DropTable(
+                name: "StatusCheckSet");
+
+            migrationBuilder.DropTable(
+                name: "HistoricalStatusDataSet");
+        }
+    }
+}

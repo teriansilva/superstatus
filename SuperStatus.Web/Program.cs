@@ -24,6 +24,7 @@ builder.Services.AddHttpClient<StatusApiClient>(client =>
     client.BaseAddress = new("https+http://apiservice");
 });
 
+builder.Services.AddHttpContextAccessor();
 
 builder.Services.AddAuthentication(options =>
 {
@@ -58,20 +59,17 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
-
 app.UseStaticFiles();
 app.UseAntiforgery();
 
 app.UseOutputCache();
 
+app.UseAuthentication();
+app.UseAuthorization();
+
 app.MapRazorComponents<App>()
    .AddInteractiveServerRenderMode();
 
 app.MapDefaultEndpoints();
-
-app.UseAuthentication();
-app.UseAuthorization();
-
-app.MapBlazorHub().RequireAuthorization();
 
 app.Run();

@@ -1,5 +1,13 @@
-﻿<FluentFooter>
-    <a href="/admin" target="_blank">Admin</a> 
+﻿@using Microsoft.AspNetCore.Components.Authorization
+
+
+<FluentFooter>
+    <a href="/admin" target="_blank">Admin </a> &nbsp;
+    <AuthorizeView>
+        <Authorized>
+            ( <a href="/logout">Logout</a> )
+        </Authorized>
+    </AuthorizeView>
     <FluentSpacer />
     <a href="https://superstatus.io" target="_blank">Powered by SuperStatus</a>
 </FluentFooter>

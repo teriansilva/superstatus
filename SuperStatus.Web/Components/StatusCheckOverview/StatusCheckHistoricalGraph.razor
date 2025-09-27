@@ -1,55 +1,60 @@
 ﻿@using Microsoft.FluentUI.AspNetCore.Components.DesignTokens
 @using SuperStatus.Data.Entities
 @inject StatusApiClient StatusApi
-<div class="wrapper">
-    @if (historicalStatusCheckData != null)
+
+
+    @if (historicalStatusCheckData is { Count: > 0 })
     {
         foreach (var historicalStatusDataDay in historicalStatusCheckData)
         {
-            string statusCheckAnchorString = GetAnchorString(historicalStatusDataDay);
-            string barColor = GetBarColor(historicalStatusDataDay);
-                    <MudPaper Class="mud-theme-primary" style="width:5px!important; height:32px"> </MudPaper>
-            <FluentTooltip Anchor="@statusCheckAnchorString" HideTooltipOnCursorLeave="true" Position=TooltipPosition.Top Delay=200>
-                @(historicalStatusDataDay.Date) had
-                @(historicalStatusDataDay.FailedResponseCount) times failed,
-                @(historicalStatusDataDay.SlowResponseCount) times slow and
-                @(historicalStatusDataDay.UnreachableCount) times unreachable
-            </FluentTooltip>
+            <MudTooltip Arrow="true" Placement="Placement.Top">
+                <ChildContent>
+                    <MudChip T="string" Class="calculate-box-size" Label="true" Color="@GetBarColor(historicalStatusDataDay)"></MudChip>
+                </ChildContent>
+                <TooltipContent>
+                    @(historicalStatusDataDay.Date) had
+                    @(historicalStatusDataDay.FailedResponseCount) times failed,
+                    @(historicalStatusDataDay.SlowResponseCount) times slow and
+                    @(historicalStatusDataDay.UnreachableCount) times unreachable
+                </TooltipContent>
+            </MudTooltip>
         }
     }
-</div>
+
+
+<style>
+    .mud-chip {
+        
+        height: 32px;
+        padding: 4px;
+    }
+
+    .mud-tooltip-root
+    {
+        width: calc(100% / @(historicalStatusCheckData.Count));
+    }
+
+</style>
+
 
 @code
 {
+    public int BoxWidth = 10;
+
     [Parameter, EditorRequired]
     public required StatusCheckViewModel statusCheck { get; set; }
 
-    private List<HistoricalStatusDataOverviewChartViewModel> historicalStatusCheckData { get; set; } = new List<HistoricalStatusDataOverviewChartViewModel>();
-    private ElementReference MainContainerRef;
+    private List<HistoricalStatusDataOverviewChartViewModel> historicalStatusCheckData { get; set; } = new();
 
-    protected async override Task OnInitializedAsync()
+    protected override async Task OnInitializedAsync()
     {
         historicalStatusCheckData = await StatusApi.GetHistoricalStatusData(statusCheck.Id);
     }
 
-    private string GetAnchorString(HistoricalStatusDataOverviewChartViewModel historicalStatusDataDay)
-    {
-        return $"StatusCheck_{statusCheck.Id}_{historicalStatusDataDay.Date.ToString("MM_dd_yyyy")}";
-    }
-
-    private string GetBarColor(HistoricalStatusDataOverviewChartViewModel historicalStatusDataDay)
-    {
-        if (historicalStatusDataDay.FailedStatus)
-        {
-            return "var(--error)";
-        }
-        else if (historicalStatusDataDay.SlowResponse) //TODO: include slow response from appsettings!
-        {
-            return "var(--warning)";
-        }
-        else
-        {
-            return "var(--success)";
-        }
-    }
+    private Color GetBarColor(HistoricalStatusDataOverviewChartViewModel historicalStatusDataDay)
+        => historicalStatusDataDay.FailedStatus
+            ? Color.Error
+            : historicalStatusDataDay.SlowResponse
+                ? Color.Warning
+                : Color.Success;
 }

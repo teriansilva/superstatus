@@ -209,7 +209,7 @@ public class AuthorizationController(
     [HttpGet("~/connect/logout")]
     public IActionResult Logout() => View();
 
-    [ActionName(nameof(Logout)), HttpPost("~/connect/logout"), ValidateAntiForgeryToken]
+    [ActionName(nameof(Logout)), HttpPost("~/connect/logout"), IgnoreAntiforgeryToken]
     public async Task<IActionResult> LogoutPost()
     {
         await _signInManager.SignOutAsync();
@@ -265,6 +265,21 @@ public class AuthorizationController(
                     .SetClaim(Claims.Name, await _userManager.GetUserNameAsync(user))
                     .SetClaims(Claims.Role, [.. await _userManager.GetRolesAsync(user)]);
 
+            identity.SetDestinations(GetDestinations);
+
+            return SignIn(new ClaimsPrincipal(identity), OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
+        }
+        else if (request.IsClientCredentialsGrantType())
+        {
+            var application = await _applicationManager.FindByClientIdAsync(request.ClientId ?? string.Empty)
+                ?? throw new InvalidOperationException("Client application cannot be found.");
+
+            var identity = new ClaimsIdentity(TokenValidationParameters.DefaultAuthenticationType);
+            // Subject represents the calling client in client_credentials.
+            identity.SetClaim(Claims.Subject, await _applicationManager.GetClientIdAsync(application) ?? string.Empty);
+
+            identity.SetScopes(request.GetScopes());
+            identity.SetResources(await _scopeManager.ListResourcesAsync(identity.GetScopes()).ToListAsync());
             identity.SetDestinations(GetDestinations);
 
             return SignIn(new ClaimsPrincipal(identity), OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);

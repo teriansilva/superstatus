@@ -16,12 +16,17 @@ public static class SuperStatusIdentityDbInitializer
             await dbContext.Database.MigrateAsync();
         }
         var manager = scope.ServiceProvider.GetRequiredService<IOpenIddictApplicationManager>();
-        await SeedAuthorizationClients(dbContext, manager, new CancellationToken());
+        var scopeManager = scope.ServiceProvider.GetRequiredService<IOpenIddictScopeManager>();
+        await SeedAuthorizationClients(dbContext, manager, scopeManager, new CancellationToken());
     }
 
-    private static async Task SeedAuthorizationClients(SuperStatusIdentityDb context, IOpenIddictApplicationManager manager, CancellationToken cancellationToken)
+    private static async Task SeedAuthorizationClients(SuperStatusIdentityDb context, IOpenIddictApplicationManager manager, IOpenIddictScopeManager scopeManager, CancellationToken cancellationToken)
     {
-        if (await manager.FindByClientIdAsync("aspNetCoreAuth", cancellationToken) == null)
+
+
+        var existing = await manager.FindByClientIdAsync("aspNetCoreAuth", cancellationToken);
+
+        if (existing == null)
         {
             await manager.CreateAsync(new OpenIddictApplicationDescriptor
             {
@@ -43,10 +48,15 @@ public static class SuperStatusIdentityDbInitializer
                     Permissions.Endpoints.EndSession,
                     Permissions.Endpoints.Token,
                     Permissions.GrantTypes.AuthorizationCode,
+                    Permissions.GrantTypes.RefreshToken,
                     Permissions.ResponseTypes.Code,
                     Permissions.Scopes.Email,
                     Permissions.Scopes.Profile,
-                    Permissions.Scopes.Roles
+                    Permissions.Scopes.Roles,
+
+                    // Machine-to-machine (client credentials) + custom scope
+                    Permissions.GrantTypes.ClientCredentials,
+                    Permissions.Prefixes.Scope + "api"
                 },
                 Requirements =
                 {

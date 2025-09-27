@@ -1,46 +1,82 @@
 ﻿@using Humanizer
+@using Microsoft.AspNetCore.Components.Authorization
+@using SuperStatus.Configuration
 @using SuperStatus.Data.Constants
 
-@rendermode InteractiveServer
-<FluentCard>
-    <FluentGrid>
-        <FluentGridItem xs="6" sm="6">
-            <FluentStack VerticalGap="20" Orientation="Orientation.Vertical" HorizontalAlignment="HorizontalAlignment.Start" VerticalAlignment="VerticalAlignment.Center">
-                <FluentPersona Name="@statusCheck.Title"
-                               ChildContent="@(builder =>
-                               {
-                                   builder.OpenElement(0, "h4");
-                                   builder.AddContent(1, statusCheck.Title);
-                                   builder.CloseElement();
-                               })"
-                               Status="@StatusCheckIcon"
-                               StatusSize="PresenceBadgeSize.Medium"
-                               StatusTitle="-"
-                               Image="@(!string.IsNullOrWhiteSpace(statusCheck.ServiceLogoUrl) ? statusCheck.ServiceLogoUrl : new Icons.Regular.Size48.DesktopPulse().ToDataUri(size: " 32px", color: "white"))"
-                               ImageSize="50px">
-                </FluentPersona>
-                <FluentLabel Typo="Typography.Body">@statusCheck.Description</FluentLabel>
-            </FluentStack>
-        </FluentGridItem>
-        <FluentGridItem xs="6" sm="6" Justify="JustifyContent.FlexEnd">
-            <FluentBadge Appearance="Appearance.Accent" slot="end">Last checked @LastCheckTimeAgo (@statusCheck.MostRecentHistoricalStatusCheck?.TimeOfCheckUTC)</FluentBadge>
-        </FluentGridItem>
-    </FluentGrid>
-    <StatusCheckHistoricalGraph statusCheck="statusCheck" />
-</FluentCard>
+@inject IDialogService DialogService
+
+<MudCard Outlined="true" Class="pa-2">
+    <MudCardHeader>
+        <CardHeaderAvatar>
+            <MudBadge Color="@StatusCheckColor" Icon="@StatusCheckIcon" Overlap="true" Bordered="true">
+                <MudAvatar>
+                    @if (!string.IsNullOrWhiteSpace(statusCheck.ServiceLogoUrl))
+                    {
+                        <MudImage Src="@statusCheck.ServiceLogoUrl" />
+                    }
+                    else
+                    {
+                        <MudIcon Icon="@Icons.Material.Filled.NetworkPing" />
+                    }
+                </MudAvatar>
+            </MudBadge>
+        </CardHeaderAvatar>
+
+        <CardHeaderActions>
+            <AuthorizeView>
+                <Authorized>
+                    <MudButtonGroup Color="Color.Transparent" Variant="Variant.Text" Size="Size.Small">
+                        <MudMenu Icon="@Icons.Material.Filled.Settings" Style="align-self: auto;">
+                            <MudMenuItem OnClick="OpenEditDialogAsync">Edit</MudMenuItem>
+                            <MudMenuItem >Delete</MudMenuItem>
+                        </MudMenu>
+                    </MudButtonGroup>
+                </Authorized>
+            </AuthorizeView>
+        </CardHeaderActions>
 
 
-@code
-{
+        <CardHeaderContent>
+            <MudText Typo="Typo.body1">@statusCheck.Title</MudText>
+            <MudText Typo="Typo.caption">Last checked @LastCheckTimeAgo (@statusCheck.MostRecentHistoricalStatusCheck?.TimeOfCheckUTC)</MudText>
+        </CardHeaderContent>
+    </MudCardHeader>
+    <MudGrid>
+        <MudItem xs="12">
+            <StatusCheckHistoricalGraph statusCheck="statusCheck" />
+            <MudProgressLinear Color="Color.Dark"
+                               Class="mt-1"
+                               Size="Size.Small"
+                               Value="@StatusBarProgress" />
+        </MudItem>
+    </MudGrid>
+</MudCard>
+
+@code {
     [Parameter]
     public required StatusCheckViewModel statusCheck { get; set; }
 
-    private PresenceStatus StatusCheckIcon { get; set; } = PresenceStatus.Unknown;
+    private string StatusCheckIcon { get; set; } = Icons.Material.Filled.QuestionMark;
+    private Color StatusCheckColor = Color.Default;
     private string LastCheckTimeAgo { get; set; } = "Not checked, yet";
+
+    private double StatusBarProgress; // 0..100
+    private string ProgressLabel => $"{Math.Min((int)ElapsedSeconds, IntervalSeconds)}s / {IntervalSeconds}s";
+
+    private DateTime _startUtc;
+    private CancellationTokenSource? _cts;
+    private Task? _loopTask;
+
+    private int IntervalSeconds => Math.Max(1, SuperStatusConfig.JobIntervallInSeconds);
+    private double ElapsedSeconds => (DateTime.UtcNow - _startUtc).TotalSeconds;
+
+    // Update every 100ms for smoothness (tweak: 33ms ~ 30fps, 16ms ~ 60fps)
+    private static readonly TimeSpan UpdateInterval = TimeSpan.FromMilliseconds(100);
 
     protected override void OnParametersSet()
     {
         GetStatusIcon();
+        RestartProgress();
     }
 
     private void GetStatusIcon()
@@ -50,19 +86,88 @@
             switch (statusCheck.MostRecentHistoricalStatusCheck.FailType)
             {
                 case FailType.NoFail:
-                    StatusCheckIcon = PresenceStatus.Available;
+                    StatusCheckIcon = Icons.Material.Filled.Check;
+                    StatusCheckColor = Color.Success;
                     break;
                 case FailType.StatusCode:
-                    StatusCheckIcon = PresenceStatus.Busy;
+                    StatusCheckIcon = Icons.Material.Filled.Error;
+                    StatusCheckColor = Color.Error;
                     break;
                 case FailType.ResponseTime:
-                    StatusCheckIcon = PresenceStatus.Away;
+                    StatusCheckIcon = Icons.Material.Filled.HourglassEmpty;
+                    StatusCheckColor = Color.Warning;
                     break;
                 case FailType.Unreachable:
-                    StatusCheckIcon = PresenceStatus.Offline;
+                    StatusCheckIcon = Icons.Material.Filled.Remove;
+                    StatusCheckColor = Color.Error;
                     break;
             }
             LastCheckTimeAgo = statusCheck.MostRecentHistoricalStatusCheck.TimeOfCheckUTC.Humanize();
+        }
+    }
+
+    private void RestartProgress()
+    {
+        _startUtc = DateTime.UtcNow;
+        StatusBarProgress = 0;
+
+        _cts?.Cancel();
+        _cts?.Dispose();
+        _cts = new CancellationTokenSource();
+        var token = _cts.Token;
+
+        _loopTask = Task.Run(async () =>
+        {
+            // Using PeriodicTimer reduces drift vs nested Task.Delay
+            var timer = new PeriodicTimer(UpdateInterval);
+            try
+            {
+                while (await timer.WaitForNextTickAsync(token))
+                {
+                    var pct = (ElapsedSeconds / IntervalSeconds) * 100.0;
+                    if (pct >= 100)
+                    {
+                        StatusBarProgress = 100;
+                        await InvokeAsync(StateHasChanged);
+                        break;
+                    }
+
+                    StatusBarProgress = pct;
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+            catch (OperationCanceledException) { }
+            finally
+            {
+                timer.Dispose();
+            }
+        }, token);
+    }
+   
+
+    private Task OpenEditDialogAsync()
+    {
+        var options = new DialogOptions { CloseOnEscapeKey = true, CloseButton = true };
+        var parameters = new DialogParameters<StatusCheckEditDialog> { { x => x.StatusCheck, statusCheck } };
+
+
+
+        return DialogService.ShowAsync<StatusCheckEditDialog>(statusCheck.Title, parameters, options);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            _cts?.Cancel();
+            if (_loopTask is not null)
+            {
+                try { await _loopTask; } catch { /* ignore */ }
+            }
+        }
+        finally
+        {
+            _cts?.Dispose();
         }
     }
 }

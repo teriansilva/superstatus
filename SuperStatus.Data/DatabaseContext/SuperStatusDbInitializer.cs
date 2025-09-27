@@ -58,7 +58,7 @@ public static class SuperStatusDbInitializer
                     Title = "GitHub",
                     StatusCheckUrl = "https://www.github.com",
                     IsWebHookOnErrorEnabled = true,
-                    WebHookOnErrorUrl = "https://example.  com/webhook",
+                    WebHookOnErrorUrl = "https://example.com/webhook",
                     ThrottleWebHookToExecuteOnlyEveryXMinutes = 5,
                     ExpectedStatusCode = 200,
                     ExpectedResponseTimeInMs = 1000,

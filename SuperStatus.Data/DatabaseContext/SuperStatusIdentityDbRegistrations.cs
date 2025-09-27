@@ -42,16 +42,21 @@ public static class SuperStatusIdentityDbRegistrations
                              .SetTokenEndpointUris("connect/token")
                              .SetUserInfoEndpointUris("connect/userinfo");
 
-                serverBuilder.RegisterScopes(Scopes.Email, Scopes.Profile, Scopes.Roles);
+                serverBuilder.RegisterScopes(Scopes.Email, Scopes.Profile, Scopes.Roles, "api");
 
                 serverBuilder.AllowAuthorizationCodeFlow()
-                             .RequireProofKeyForCodeExchange();
+                             .RequireProofKeyForCodeExchange()
+                             .AllowRefreshTokenFlow()
+                             .AllowClientCredentialsFlow();
+
 
                 serverBuilder.AddDevelopmentEncryptionCertificate()
                              .AddDevelopmentSigningCertificate();
 
                 serverBuilder.UseAspNetCore()
                     .EnableAuthorizationEndpointPassthrough()
+                    .EnableTokenEndpointPassthrough()
+                    .EnableEndSessionEndpointPassthrough()
                     .EnableStatusCodePagesIntegration()
                     .DisableTransportSecurityRequirement(); // dev only
             })

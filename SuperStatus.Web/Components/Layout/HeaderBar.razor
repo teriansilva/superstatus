@@ -1,20 +1,30 @@
-﻿@using SuperStatus.Configuration
-<FluentHeader Appearance="Appearance.Accent">
-    <FluentStack Style="height:100%">
-       @if (HasLogo)
+﻿@using Microsoft.AspNetCore.Components.Authorization
+@using SuperStatus.Configuration
+
+
+    <MudAppBar Dense>
+         @if (HasLogo)
         {
-            <FluentStack Style="height:100%" Orientation="Orientation.Horizontal" VerticalAlignment="VerticalAlignment.Bottom">
-                <img src="@LogoUrl" style='max-height: 100%; object-fit: contain' />
-                <FluentLabel Typo="Typography.Body">@Description</FluentLabel>
-            </FluentStack>
+                <img src="@LogoUrl" style='max-height: 100%; object-fit: contain' /> <span>@Description</span>
         }
         else
         {
             <div>SuperStatus</div>
         }
+        <MudSpacer />
 
-    </FluentStack>
-</FluentHeader>
+    <AuthorizeView>
+        <Authorized>
+            <MudIconButton Icon="@Icons.Material.Filled.Settings" Size="Size.Small" Color="Color.Inherit" Href="/admin"  />
+            <MudIconButton Icon="@Icons.Material.Filled.Logout" Size="Size.Small" Color="Color.Inherit" Href="/logout"  />
+        </Authorized>
+        <NotAuthorized>
+             <MudIconButton Icon="@Icons.Material.Filled.Login" Size="Size.Small" Color="Color.Inherit" Href="/login?returnUrl=/"  />
+        </NotAuthorized>
+    </AuthorizeView>
+   
+    </MudAppBar>
+
 
 @code{
 

@@ -1,15 +1,12 @@
-﻿using Microsoft.VisualBasic;
-using SuperStatus.ApiService.Configuration;
-using SuperStatus.Configuration;
+﻿using Microsoft.Extensions.Logging;
 using SuperStatus.Data.Constants;
 using SuperStatus.Data.DTO;
 using SuperStatus.Data.Entities;
 using SuperStatus.Data.Repositories;
 using SuperStatus.Data.ViewModels;
 using System.Diagnostics;
-using System.Reflection;
 
-namespace SuperStatus.Services
+namespace SuperStatus.Services.Services
 {
     public interface IStatusCheckService
     {
@@ -23,6 +20,8 @@ namespace SuperStatus.Services
         Task<HistoricalStatusData> ExecuteStatusCheck(StatusCheck statusCheck);
         Task<HistoricalStatusData> SaveStatusCheckResult(HistoricalStatusData statusCheckResult);
         Task<HistoricalStatusAction?> RunPostStatusCheckTasks(StatusCheck statusCheck, HistoricalStatusData statusCheckResult);
+
+        Task<StatusCheck> AddOrUpdateStatusCheck(StatusCheckViewModelBase statusCheck);
     }
     public class StatusCheckService(IStatusCheckRepository statusCheckRepository, IHistoricalStatusDataRepository historicalStatusDataRepository, IHistoricalStatusActionRepository historicalStatusActionRepository, ILogger<StatusCheckService> logger) : IStatusCheckService
     {
@@ -95,7 +94,7 @@ namespace SuperStatus.Services
                 historicalStatusDataOverviewSet.Add(new HistoricalStatusDataOverviewChartViewModel(statusCheck.Id, date, failed, slow, unreachable));
             }
 
-            return historicalStatusDataOverviewSet.OrderBy(x => x.Date).ToList(); 
+            return historicalStatusDataOverviewSet.OrderBy(x => x.Date).ToList();
         }
 
         public async Task<HistoricalStatusData> ExecuteStatusCheck(StatusCheck statusCheck)
@@ -147,7 +146,7 @@ namespace SuperStatus.Services
                 return null;
             }
 
-            if(await IsWebhookThrottleInEffect(statusCheck))
+            if (await IsWebhookThrottleInEffect(statusCheck))
             {
                 logger.LogInformation($"NOT running task for {statusCheck.Title} because of active throttle!");
                 return null;
@@ -166,6 +165,44 @@ namespace SuperStatus.Services
             return new HistoricalStatusAction(statusCheckResult, ActionType.Webhook, DateTime.UtcNow);
         }
 
+        public async Task<StatusCheck> AddOrUpdateStatusCheck(StatusCheckViewModelBase statusCheck)
+        {
+            if (statusCheck.Id > 0)
+            {
+                var existingStatusCheck = await statusCheckRepository.GetStatusCheckById(statusCheck.Id) ?? throw new Exception($"Failed to find status check with id {statusCheck.Id}");
+
+                existingStatusCheck.Title = statusCheck.Title;
+                existingStatusCheck.StatusCheckUrl = statusCheck.StatusCheckUrl;
+                existingStatusCheck.IsWebHookOnErrorEnabled = statusCheck.IsWebHookOnErrorEnabled;
+                existingStatusCheck.WebHookOnErrorUrl = statusCheck.WebHookOnErrorUrl;
+                existingStatusCheck.ThrottleWebHookToExecuteOnlyEveryXMinutes = statusCheck.ThrottleWebHookToExecuteOnlyEveryXMinutes;
+                existingStatusCheck.ExpectedStatusCode = statusCheck.ExpectedStatusCode;
+                existingStatusCheck.ExpectedResponseTimeInMs = statusCheck.ExpectedResponseTimeInMs;
+                existingStatusCheck.Description = statusCheck.Description;
+                existingStatusCheck.Enabled = statusCheck.Enabled;
+                existingStatusCheck.ServiceLogoUrl = statusCheck.ServiceLogoUrl;
+
+                return await statusCheckRepository.UpdateAndSave(existingStatusCheck);
+
+            }
+
+            var newStatusCheck = new StatusCheck
+            {
+                Title = statusCheck.Title,
+                StatusCheckUrl = statusCheck.StatusCheckUrl,
+                IsWebHookOnErrorEnabled = statusCheck.IsWebHookOnErrorEnabled,
+                WebHookOnErrorUrl = statusCheck.WebHookOnErrorUrl,
+                ThrottleWebHookToExecuteOnlyEveryXMinutes = statusCheck.ThrottleWebHookToExecuteOnlyEveryXMinutes,
+                ExpectedStatusCode = statusCheck.ExpectedStatusCode,
+                ExpectedResponseTimeInMs = statusCheck.ExpectedResponseTimeInMs,
+                Description = statusCheck.Description,
+                Enabled = statusCheck.Enabled,
+                ServiceLogoUrl = statusCheck.ServiceLogoUrl
+            };
+            return await statusCheckRepository.AddAndSave(newStatusCheck);
+
+        }
+
         private FailType CalculateFailTypeOfHistoricalStatusData(StatusCheck statusCheck, HistoricalStatusData statusData)
         {
             if (statusData.CheckFailed)
@@ -180,8 +217,8 @@ namespace SuperStatus.Services
             {
                 return FailType.ResponseTime;
             }
-            else 
-            {                 
+            else
+            {
                 return FailType.NoFail;
             }
         }
@@ -193,7 +230,7 @@ namespace SuperStatus.Services
             {
                 return false;
             }
-            if(statusAction.TimeOfExecutionUTC.AddMinutes(statusCheck.ThrottleWebHookToExecuteOnlyEveryXMinutes) > DateTime.UtcNow)
+            if (statusAction.TimeOfExecutionUTC.AddMinutes(statusCheck.ThrottleWebHookToExecuteOnlyEveryXMinutes) > DateTime.UtcNow)
             {
                 return true;
             }

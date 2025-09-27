@@ -2,4 +2,46 @@
 @using SuperStatus.Web.Components.StatusCheckOverview
 @attribute [Authorize]
 <PageTitle>Admin</PageTitle>
-Admin Page
+
+<MudGrid>
+    <MudItem xs="12" Class="d-flex align-center justify-center mud-width-full">
+
+    </MudItem>
+    <MudItem xs="12" Class="d-flex align-center justify-center mud-width-full">
+        <MudText Typo="Typo.h6">Instance Settings</MudText>
+    </MudItem>
+    <MudItem xs="12">
+        <MudPaper Class="pa-4">
+            <MudForm>
+                <MudTextField T="string" Label="Username" Required="true" RequiredError="User name is required!" />
+                <MudTextField T="string" Label="Email" Required="true" RequiredError="Email is required!"
+                               />
+                <MudTextField T="string" Label="Password" HelperText="Choose a strong password" 
+                              InputType="InputType.Password"
+                               Required="true"
+                              RequiredError="Password is required!" />
+                <MudTextField T="string"
+                              Label="Password" HelperText="Repeat the password" InputType="InputType.Password"
+                              />
+                <div class="d-flex">
+                    <MudRadioGroup T="string" Required="true" RequiredError="Account type is required!">
+                        <MudRadio Value="@("Personal")">Personal</MudRadio>
+                        <MudRadio Value="@("Professional")">Professional</MudRadio>
+                    </MudRadioGroup>
+                </div>
+                <div class="d-flex align-center justify-space-between">
+                    <MudCheckBox T="bool" Required="true" RequiredError="You must agree" Label="I agree!" />
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary"  Class="ml-auto">Register</MudButton>
+                </div>
+            </MudForm>
+        </MudPaper>
+        <MudPaper Class="pa-4 mt-4">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" DropShadow="false">Validate</MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Secondary" DropShadow="false"  Class="mx-2">Reset</MudButton>
+            <MudButton Variant="Variant.Filled" DropShadow="false" >Reset Validation</MudButton>
+        </MudPaper>
+    </MudItem>
+    <MudItem xs="12" Class="d-flex align-center justify-center mud-width-full">
+        <MudText Typo="Typo.h6">Job Settings</MudText>
+    </MudItem>
+</MudGrid>

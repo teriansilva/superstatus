@@ -1,7 +1,5 @@
-﻿using Quartz;
-using SuperStatus.Configuration;
-using SuperStatus.Data.DatabaseContext;
-using SuperStatus.Scheduler;
+﻿using SuperStatus.Data.DatabaseContext;
+using SuperStatus.Services.Services;
 
 
 namespace SuperStatus.Services
@@ -14,7 +12,7 @@ namespace SuperStatus.Services
         public static void AddApplicationServices(this IServiceCollection services, IConfiguration configuration)
         {
 
-            services.AddSuperStatusDb(configuration);
+            services.AddSuperStatusDb(configuration); 
             services.AddRepositories();
 
             services.AddHttpClient();

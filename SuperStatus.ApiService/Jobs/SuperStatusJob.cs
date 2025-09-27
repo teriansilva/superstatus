@@ -1,6 +1,6 @@
 ﻿using Quartz;
 using SuperStatus.Data.Entities;
-using SuperStatus.Services;
+using SuperStatus.Services.Services;
 
 namespace SuperStatus.Scheduler
 {

@@ -191,7 +191,7 @@ code {
 }
 
 .chartbar {
-    height: 32px;
+    height: 64px;
     border-top-left-radius: 4px;
     border-top-right-radius: 4px;
     border-bottom-left-radius: 4px;
@@ -200,10 +200,6 @@ code {
     margin-right: 2px;
 }
 
-.wrapper {
-    display: flex;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    margin: 0;
+.charbar-container {
     padding: 10px 0 0 0;
 }

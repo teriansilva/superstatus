@@ -16,8 +16,10 @@ using SuperStatus.ApiService.Configuration.Settings;
 using SuperStatus.Configuration;
 using SuperStatus.Data.DatabaseContext;
 using SuperStatus.Data.Utilities;
+using SuperStatus.Data.ViewModels;
 using SuperStatus.Scheduler;
 using SuperStatus.Services;
+using SuperStatus.Services.Services;
 using System.Globalization;
 using System.Threading.RateLimiting;
 using ProblemDetailsOptions = Hellang.Middleware.ProblemDetails.ProblemDetailsOptions;
@@ -259,19 +261,15 @@ static void ConfigureEndpoints(WebApplication app)
         return Results.Ok(statusCheck);
     });
 
-    app.MapGet("/historicalStatusData/{id}", async (int id, IStatusCheckService statusCheckService) =>
+    app.MapGet("/statuscheck/gethistoricaldata/{id}", async (int id, IStatusCheckService statusCheckService) =>
     {
         return await statusCheckService.GetHistoricalStatusDataOverviewForRecentTimeRange(id, SuperStatusConfig.StatusCheckGraphViewMaxDays);
     });
 
-    app.MapGet("/admin/statuscheck", async (IStatusCheckService statusCheckService) =>
+    app.MapPost("/statuscheck/edit", async (StatusCheckViewModelBase statusCheckToUpdate, IStatusCheckService statusCheckService) =>
     {
-        var statusCheck = await statusCheckService.GetStatusCheckViewModelSet();
-        if (statusCheck.Count == 0)
-        {
-            return Results.NotFound("No status checks found.");
-        }
-        return Results.Ok(statusCheck);
+        await statusCheckService.AddOrUpdateStatusCheck(statusCheckToUpdate);
+        return Results.Ok();
     }).RequireAuthorization();
 }
 

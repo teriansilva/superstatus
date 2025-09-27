@@ -1,4 +1,6 @@
+using Microsoft.AspNetCore.Authentication;
 using SuperStatus.Data.ViewModels;
+using System.Net.Http.Headers;
 
 namespace SuperStatus.Web;
 
@@ -22,7 +24,7 @@ public class StatusApiClient(HttpClient httpClient)
     {
         List<HistoricalStatusDataOverviewChartViewModel>? historicalStatusSet = new List<HistoricalStatusDataOverviewChartViewModel>();
 
-        await foreach (var historicalStatus in httpClient.GetFromJsonAsAsyncEnumerable<HistoricalStatusDataOverviewChartViewModel>($"/historicalStatusData/{statusCheckId}", cancellationToken))
+        await foreach (var historicalStatus in httpClient.GetFromJsonAsAsyncEnumerable<HistoricalStatusDataOverviewChartViewModel>($"/statuscheck/gethistoricaldata/{statusCheckId}", cancellationToken))
         {
             if (historicalStatus is not null)
             {
@@ -30,5 +32,17 @@ public class StatusApiClient(HttpClient httpClient)
             }
         }
         return historicalStatusSet;
+    }
+
+    public async Task UpdateOrAddStatusCheck(StatusCheckViewModelBase statusCheckToSave, CancellationToken cancellationToken = default)
+    {
+
+        using var response = await httpClient.PostAsJsonAsync("/statuscheck/edit", statusCheckToSave, cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new HttpRequestException($"Failed to save status check. {(int)response.StatusCode} {response.ReasonPhrase}. {content}");
+        }
     }
 }

@@ -21,6 +21,7 @@ namespace SuperStatus.Data.ViewModels
         public bool SlowResponse => SlowResponseCount > 0;
         public bool Unreachable => UnreachableCount > 0;
         public bool NoFailures => FailedResponseCount == 0 && SlowResponseCount == 0 && UnreachableCount == 0;
+
     }
 
 }

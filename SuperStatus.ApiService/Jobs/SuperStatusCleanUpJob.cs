@@ -3,6 +3,7 @@ using SuperStatus.Configuration;
 using SuperStatus.Data.Entities;
 using SuperStatus.Data.Repositories;
 using SuperStatus.Services;
+using SuperStatus.Services.Services;
 
 namespace SuperStatus.Scheduler
 {

@@ -1,0 +1,29 @@
+﻿<MudThemeProvider @ref="_mudThemeProvider" IsDarkMode="@_isDarkMode" />
+
+@code {
+    private bool _isDarkMode;
+    private MudThemeProvider? _mudThemeProvider;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        // Get current system preference first
+        _isDarkMode = await _mudThemeProvider!.GetSystemDarkModeAsync();
+
+        // Start watching future changes
+        await _mudThemeProvider.WatchSystemDarkModeAsync(OnSystemDarkModeChanged);
+
+        StateHasChanged(); // Re-render once with correct mode
+    }
+
+    private Task OnSystemDarkModeChanged(bool newValue)
+    {
+        if (_isDarkMode == newValue)
+            return Task.CompletedTask;
+
+        _isDarkMode = newValue;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+}

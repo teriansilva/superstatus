@@ -8,7 +8,7 @@
         {
             string statusCheckAnchorString = GetAnchorString(historicalStatusDataDay);
             string barColor = GetBarColor(historicalStatusDataDay);
-            <div id="@statusCheckAnchorString" class="chartbar" style="width: calc(100% / @(historicalStatusCheckData.Count) - 4px); background-color:@(barColor)"></div>
+                    <MudPaper Class="mud-theme-primary" style="width:5px!important; height:32px"> </MudPaper>
             <FluentTooltip Anchor="@statusCheckAnchorString" HideTooltipOnCursorLeave="true" Position=TooltipPosition.Top Delay=200>
                 @(historicalStatusDataDay.Date) had
                 @(historicalStatusDataDay.FailedResponseCount) times failed,

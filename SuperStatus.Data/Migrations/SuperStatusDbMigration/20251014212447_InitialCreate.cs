@@ -13,20 +13,21 @@ namespace SuperStatus.Data.Migrations.SuperStatusDbMigration
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.CreateTable(
-                name: "HistoricalStatusDataSet",
+                name: "IncidentSet",
                 columns: table => new
                 {
                     Id = table.Column<long>(type: "bigint", nullable: false)
                         .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
-                    StatusCheckId = table.Column<long>(type: "bigint", nullable: false),
-                    HttpStatusCode = table.Column<int>(type: "integer", nullable: false),
-                    ResponseTimeInMs = table.Column<long>(type: "bigint", nullable: false),
-                    TimeOfCheckUTC = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    CheckFailed = table.Column<bool>(type: "boolean", nullable: false)
+                    AuotmaticallyGeneratedReport = table.Column<bool>(type: "boolean", nullable: false),
+                    Title = table.Column<string>(type: "text", nullable: false),
+                    Resolved = table.Column<bool>(type: "boolean", nullable: false),
+                    Description = table.Column<string>(type: "text", nullable: false),
+                    Created = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    VisibleToPublic = table.Column<bool>(type: "boolean", nullable: false)
                 },
                 constraints: table =>
                 {
-                    table.PrimaryKey("PK_HistoricalStatusDataSet", x => x.Id);
+                    table.PrimaryKey("PK_IncidentSet", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -49,6 +50,36 @@ namespace SuperStatus.Data.Migrations.SuperStatusDbMigration
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_StatusCheckSet", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "HistoricalStatusDataSet",
+                columns: table => new
+                {
+                    Id = table.Column<long>(type: "bigint", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    StatusCheckId = table.Column<long>(type: "bigint", nullable: false),
+                    HttpStatusCode = table.Column<int>(type: "integer", nullable: false),
+                    ResponseTimeInMs = table.Column<long>(type: "bigint", nullable: false),
+                    TimeOfCheckUTC = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    CheckFailed = table.Column<bool>(type: "boolean", nullable: false),
+                    FailType = table.Column<int>(type: "integer", nullable: false),
+                    IncidentId = table.Column<long>(type: "bigint", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_HistoricalStatusDataSet", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_HistoricalStatusDataSet_IncidentSet_IncidentId",
+                        column: x => x.IncidentId,
+                        principalTable: "IncidentSet",
+                        principalColumn: "Id");
+                    table.ForeignKey(
+                        name: "FK_HistoricalStatusDataSet_StatusCheckSet_StatusCheckId",
+                        column: x => x.StatusCheckId,
+                        principalTable: "StatusCheckSet",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateTable(
@@ -77,6 +108,16 @@ namespace SuperStatus.Data.Migrations.SuperStatusDbMigration
                 table: "HistoricalStatusActionSet",
                 column: "HistoricalStatusDataId",
                 unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_HistoricalStatusDataSet_IncidentId",
+                table: "HistoricalStatusDataSet",
+                column: "IncidentId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_HistoricalStatusDataSet_StatusCheckId",
+                table: "HistoricalStatusDataSet",
+                column: "StatusCheckId");
         }
 
         /// <inheritdoc />
@@ -86,10 +127,13 @@ namespace SuperStatus.Data.Migrations.SuperStatusDbMigration
                 name: "HistoricalStatusActionSet");
 
             migrationBuilder.DropTable(
-                name: "StatusCheckSet");
+                name: "HistoricalStatusDataSet");
 
             migrationBuilder.DropTable(
-                name: "HistoricalStatusDataSet");
+                name: "IncidentSet");
+
+            migrationBuilder.DropTable(
+                name: "StatusCheckSet");
         }
     }
 }

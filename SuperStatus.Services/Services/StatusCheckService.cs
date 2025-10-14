@@ -4,6 +4,7 @@ using SuperStatus.Data.DTO;
 using SuperStatus.Data.Entities;
 using SuperStatus.Data.Repositories;
 using SuperStatus.Data.ViewModels;
+using SuperStatus.Data.Extensions;
 using System.Diagnostics;
 
 namespace SuperStatus.Services.Services
@@ -12,15 +13,14 @@ namespace SuperStatus.Services.Services
     {
         Task<IPagedResult<StatusCheck>> GetStatusCheckSet(int page = 1, int pageSize = 0);
         Task<StatusCheck?> GetStatusCheck(long StatusCheckId);
-        Task<List<StatusCheckViewModel>> GetStatusCheckViewModelSet(int page = 1, int pageSize = 0);
+        Task<IPagedResult<StatusCheckViewModel>> GetStatusCheckViewModelSet(int page = 1, int pageSize = 0);
         Task<HistoricalStatusDataViewModel?> GetMostRecentHistoricalStatusData(long statusCheckId);
         Task<IPagedResult<HistoricalStatusData>> GetPagedHistoricalStatusDataForStatusCheckId(long statusCheckId, int page, int pageSize = 0);
-        Task<IDictionary<DateTime, List<HistoricalStatusData>>> GetHistoricalStatusDataForStatusCheckIdByDays(long statusCheckId, int timeRangeInDays, int maxBatchSize);
+        Task<IDictionary<DateTime, List<HistoricalStatusData>>> GetHistoricalStatusDataForStatusCheckIdByDays(long statusCheckId, int timeRangeInDays);
         Task<List<HistoricalStatusDataOverviewChartViewModel>> GetHistoricalStatusDataOverviewForRecentTimeRange(long statusCheckId, int timeRangeInDays);
         Task<HistoricalStatusData> ExecuteStatusCheck(StatusCheck statusCheck);
         Task<HistoricalStatusData> SaveStatusCheckResult(HistoricalStatusData statusCheckResult);
         Task<HistoricalStatusAction?> RunPostStatusCheckTasks(StatusCheck statusCheck, HistoricalStatusData statusCheckResult);
-
         Task<StatusCheck> AddOrUpdateStatusCheck(StatusCheckViewModelBase statusCheck);
     }
     public class StatusCheckService(IStatusCheckRepository statusCheckRepository, IHistoricalStatusDataRepository historicalStatusDataRepository, IHistoricalStatusActionRepository historicalStatusActionRepository, ILogger<StatusCheckService> logger) : IStatusCheckService
@@ -29,45 +29,34 @@ namespace SuperStatus.Services.Services
         {
             return await statusCheckRepository.GetStatusCheckSet(page, pageSize);
         }
-
         public async Task<StatusCheck?> GetStatusCheck(long StatusCheckId)
         {
             return await statusCheckRepository.GetStatusCheckById(StatusCheckId);
         }
-
-        public async Task<List<StatusCheckViewModel>> GetStatusCheckViewModelSet(int page = 1, int pageSize = 0)
+        public async Task<IPagedResult<StatusCheckViewModel>> GetStatusCheckViewModelSet(int page = 1, int pageSize = 0)
         {
             IPagedResult<StatusCheck> statusCheckSet = await GetStatusCheckSet(page, pageSize);
-            List<StatusCheckViewModel> statusCheckViewModelSet = new List<StatusCheckViewModel>();
-            foreach (var statusCheck in statusCheckSet.Results)
-            {
-                var mostRecentHistoricalStatusData = await GetMostRecentHistoricalStatusData(statusCheck.Id);
-                statusCheckViewModelSet.Add(new StatusCheckViewModel(statusCheck, mostRecentHistoricalStatusData));
-            }
-
-            return statusCheckViewModelSet;
+            return await statusCheckSet.MapToAsync(async x => new StatusCheckViewModel(x, await GetMostRecentHistoricalStatusData(x.Id)));
         }
-
         public async Task<HistoricalStatusDataViewModel?> GetMostRecentHistoricalStatusData(long statusCheckId)
         {
             HistoricalStatusData? mostRecentHistoricalStatusData = await historicalStatusDataRepository.GetMostRecentHistoricalStatusData(statusCheckId);
             StatusCheck? statusCheck = await GetStatusCheck(statusCheckId);
-            return mostRecentHistoricalStatusData != null ? new HistoricalStatusDataViewModel(mostRecentHistoricalStatusData, CalculateFailTypeOfHistoricalStatusData(statusCheck, mostRecentHistoricalStatusData)) : null;
+            return mostRecentHistoricalStatusData != null ? new HistoricalStatusDataViewModel(mostRecentHistoricalStatusData) : null;
         }
-
         public async Task<IPagedResult<HistoricalStatusData>> GetPagedHistoricalStatusDataForStatusCheckId(long statusCheckId, int page, int pageSize = 0)
         {
             return await historicalStatusDataRepository.GetHistoricalStatusDataSetForStatusCheckId(statusCheckId, page, pageSize);
         }
-        public async Task<IDictionary<DateTime, List<HistoricalStatusData>>> GetHistoricalStatusDataForStatusCheckIdByDays(long statusCheckId, int timeRangeInDays, int maxBatchSize)
+        public async Task<IDictionary<DateTime, List<HistoricalStatusData>>> GetHistoricalStatusDataForStatusCheckIdByDays(long statusCheckId, int timeRangeInDays)
         {
-            return await historicalStatusDataRepository.GetHistoricalStatusDataSetForDaysGroupedByDays(statusCheckId, timeRangeInDays, maxBatchSize);
+            return await historicalStatusDataRepository.GetHistoricalStatusDataSetForDaysGroupedByDays(statusCheckId, timeRangeInDays);
         }
         public async Task<List<HistoricalStatusDataOverviewChartViewModel>> GetHistoricalStatusDataOverviewForRecentTimeRange(long statusCheckId, int timeRangeInDays)
         {
             DateTime referenceTime = DateTime.UtcNow;
             DateOnly currentDate = DateOnly.FromDateTime(referenceTime);
-            StatusCheck statusCheck = await GetStatusCheck(statusCheckId);
+            StatusCheck? statusCheck = await GetStatusCheck(statusCheckId);
 
             if (statusCheck == null)
             {
@@ -96,7 +85,6 @@ namespace SuperStatus.Services.Services
 
             return historicalStatusDataOverviewSet.OrderBy(x => x.Date).ToList();
         }
-
         public async Task<HistoricalStatusData> ExecuteStatusCheck(StatusCheck statusCheck)
         {
 
@@ -122,18 +110,16 @@ namespace SuperStatus.Services.Services
                 responseTimeInMs = 0;
                 checkFailed = true;
             }
-
-            HistoricalStatusData historicalStatusData = new HistoricalStatusData(new StatusCheckResult(statusCheck, responseTimeInMs, httpStatusCode, checkFailed));
+            StatusCheckResult result = new StatusCheckResult(statusCheck, responseTimeInMs, httpStatusCode, checkFailed);
+            HistoricalStatusData historicalStatusData = new HistoricalStatusData(result, CalculateFailTypeOfHistoricalStatusData(statusCheck, result));
             historicalStatusData.HistoricalStatusAction = await RunPostStatusCheckTasks(statusCheck, historicalStatusData);
             return historicalStatusData;
         }
-
-        public async Task<HistoricalStatusData> SaveStatusCheckResult(HistoricalStatusData statusCheckResult)
+        public async Task<HistoricalStatusData> SaveStatusCheckResult(HistoricalStatusData historicalStatusData)
         {
-            return await historicalStatusDataRepository.AddAndSave(statusCheckResult);
+            return await historicalStatusDataRepository.AddAndSave(historicalStatusData);
         }
-
-        public async Task<HistoricalStatusAction?> RunPostStatusCheckTasks(StatusCheck statusCheck, HistoricalStatusData statusCheckResult)
+        public async Task<HistoricalStatusAction?> RunPostStatusCheckTasks(StatusCheck statusCheck, HistoricalStatusData historicalStatusData)
         {
             if (!statusCheck.IsWebHookOnErrorEnabled
                 || string.IsNullOrWhiteSpace(statusCheck.WebHookOnErrorUrl))
@@ -141,7 +127,7 @@ namespace SuperStatus.Services.Services
                 return null;
             }
 
-            if (CalculateFailTypeOfHistoricalStatusData(statusCheck, statusCheckResult) == FailType.NoFail)
+            if (historicalStatusData.FailType == FailType.NoFail)
             {
                 return null;
             }
@@ -162,9 +148,8 @@ namespace SuperStatus.Services.Services
                 return null;
             }
 
-            return new HistoricalStatusAction(statusCheckResult, ActionType.Webhook, DateTime.UtcNow);
+            return new HistoricalStatusAction(historicalStatusData, ActionType.Webhook, DateTime.UtcNow);
         }
-
         public async Task<StatusCheck> AddOrUpdateStatusCheck(StatusCheckViewModelBase statusCheck)
         {
             if (statusCheck.Id > 0)
@@ -202,18 +187,17 @@ namespace SuperStatus.Services.Services
             return await statusCheckRepository.AddAndSave(newStatusCheck);
 
         }
-
-        private FailType CalculateFailTypeOfHistoricalStatusData(StatusCheck statusCheck, HistoricalStatusData statusData)
+        private FailType CalculateFailTypeOfHistoricalStatusData(StatusCheck statusCheck, StatusCheckResult statusCheckResult)
         {
-            if (statusData.CheckFailed)
+            if (statusCheckResult.CheckFailed)
             {
                 return FailType.Unreachable;
             }
-            else if (statusData.HttpStatusCode != statusCheck.ExpectedStatusCode)
+            else if (statusCheckResult.HttpStatusCode != statusCheck.ExpectedStatusCode)
             {
                 return FailType.StatusCode;
             }
-            else if (statusData.ResponseTimeInMs > statusCheck.ExpectedResponseTimeInMs)
+            else if (statusCheckResult.ResponseTimeInMs > statusCheck.ExpectedResponseTimeInMs)
             {
                 return FailType.ResponseTime;
             }

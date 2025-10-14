@@ -9,7 +9,7 @@ namespace SuperStatus.Data.Repositories
     {
         Task<HistoricalStatusData?> GetMostRecentHistoricalStatusData(long statusCheckId);
         Task<IPagedResult<HistoricalStatusData>> GetHistoricalStatusDataSetForStatusCheckId(long statusCheckId, int page = 1, int pageSize = 0);
-        Task<IDictionary<DateTime, List<HistoricalStatusData>>> GetHistoricalStatusDataSetForDaysGroupedByDays(long statusCheckId, int timeRangeInDays, int maxBatchSize);
+        Task<IDictionary<DateTime, List<HistoricalStatusData>>> GetHistoricalStatusDataSetForDaysGroupedByDays(long statusCheckId, int timeRangeInDays);
         Task<List<HistoricalStatusData>> GetHistoricalStatusDataFailuresOverviewSetForDaysGroupedByDays(StatusCheck statusCheck, int timeRangeInDays);
         Task<List<HistoricalStatusData>> GetHistoricalStatusDataOlderThanXDays(int days);
     }
@@ -29,7 +29,7 @@ namespace SuperStatus.Data.Repositories
             return await DbSet.Where(x => x.StatusCheckId == statusCheckId).OrderByDescending(x => x.TimeOfCheckUTC).GetPagedAsync(page, pageSize);
         }
 
-        public async Task<IDictionary<DateTime, List<HistoricalStatusData>>> GetHistoricalStatusDataSetForDaysGroupedByDays(long statusCheckId, int timeRangeInDays, int maxBatchSize)
+        public async Task<IDictionary<DateTime, List<HistoricalStatusData>>> GetHistoricalStatusDataSetForDaysGroupedByDays(long statusCheckId, int timeRangeInDays)
         {
             DateTime referenceTime = DateTime.UtcNow;
             DateTime startTime = referenceTime.AddDays(-timeRangeInDays);

@@ -12,7 +12,7 @@ using SuperStatus.Data.DatabaseContext;
 namespace SuperStatus.Data.Migrations.SuperStatusDbMigration
 {
     [DbContext(typeof(SuperStatusDb))]
-    [Migration("20250817105403_InitialCreate")]
+    [Migration("20251014212447_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -64,8 +64,14 @@ namespace SuperStatus.Data.Migrations.SuperStatusDbMigration
                     b.Property<bool>("CheckFailed")
                         .HasColumnType("boolean");
 
+                    b.Property<int>("FailType")
+                        .HasColumnType("integer");
+
                     b.Property<int>("HttpStatusCode")
                         .HasColumnType("integer");
+
+                    b.Property<long?>("IncidentId")
+                        .HasColumnType("bigint");
 
                     b.Property<long>("ResponseTimeInMs")
                         .HasColumnType("bigint");
@@ -78,7 +84,44 @@ namespace SuperStatus.Data.Migrations.SuperStatusDbMigration
 
                     b.HasKey("Id");
 
+                    b.HasIndex("IncidentId");
+
+                    b.HasIndex("StatusCheckId");
+
                     b.ToTable("HistoricalStatusDataSet");
+                });
+
+            modelBuilder.Entity("SuperStatus.Data.Entities.Incident", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<bool>("AuotmaticallyGeneratedReport")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime>("Created")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<bool>("Resolved")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<bool>("VisibleToPublic")
+                        .HasColumnType("boolean");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("IncidentSet");
                 });
 
             modelBuilder.Entity("SuperStatus.Data.Entities.StatusCheck", b =>
@@ -141,7 +184,27 @@ namespace SuperStatus.Data.Migrations.SuperStatusDbMigration
 
             modelBuilder.Entity("SuperStatus.Data.Entities.HistoricalStatusData", b =>
                 {
+                    b.HasOne("SuperStatus.Data.Entities.Incident", null)
+                        .WithMany("HistoricalStatusData")
+                        .HasForeignKey("IncidentId");
+
+                    b.HasOne("SuperStatus.Data.Entities.StatusCheck", "StatusCheck")
+                        .WithMany()
+                        .HasForeignKey("StatusCheckId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("StatusCheck");
+                });
+
+            modelBuilder.Entity("SuperStatus.Data.Entities.HistoricalStatusData", b =>
+                {
                     b.Navigation("HistoricalStatusAction");
+                });
+
+            modelBuilder.Entity("SuperStatus.Data.Entities.Incident", b =>
+                {
+                    b.Navigation("HistoricalStatusData");
                 });
 #pragma warning restore 612, 618
         }

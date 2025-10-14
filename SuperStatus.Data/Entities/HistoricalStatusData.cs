@@ -1,4 +1,5 @@
-﻿using SuperStatus.Data.DTO;
+﻿using SuperStatus.Data.Constants;
+using SuperStatus.Data.DTO;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace SuperStatus.Data.Entities
@@ -11,24 +12,24 @@ namespace SuperStatus.Data.Entities
         public HistoricalStatusData()
         {
         }
-        public HistoricalStatusData(StatusCheckResult statusCheckResult)
+        public HistoricalStatusData(StatusCheckResult statusCheckResult, FailType failType)
         {
-            StatusCheckId = statusCheckResult.StatusCheck.Id;
+            StatusCheck = statusCheckResult.StatusCheck;
             HttpStatusCode = statusCheckResult.HttpStatusCode;
             ResponseTimeInMs = statusCheckResult.ResponseTimeInMs;
             TimeOfCheckUTC = DateTime.UtcNow;
             CheckFailed = statusCheckResult.CheckFailed;
             HistoricalStatusAction = null;
-
+            FailType = failType;
         }
-        //[ForeignKey("StatusCheck")]
+        [ForeignKey("StatusCheck")]
         public long StatusCheckId { get; set; }
-        //public virtual StatusCheck StatusCheck { get; set; }
+        public StatusCheck StatusCheck { get; set; }
         public int HttpStatusCode { get; set; }
         public long ResponseTimeInMs { get; set; }
         public DateTime TimeOfCheckUTC { get; set; }
         public bool CheckFailed { get; set; }
-
-        public virtual HistoricalStatusAction? HistoricalStatusAction { get; set; }
+        public FailType FailType { get; set; }
+        public HistoricalStatusAction? HistoricalStatusAction { get; set; }
     }
 }

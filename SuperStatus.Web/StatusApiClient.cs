@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authentication;
+using SuperStatus.Data.Entities;
 using SuperStatus.Data.ViewModels;
 using System.Net.Http.Headers;
 
@@ -6,18 +7,12 @@ namespace SuperStatus.Web;
 
 public class StatusApiClient(HttpClient httpClient)
 {
-    public async Task<List<StatusCheckViewModel>> GetStatusAsync(CancellationToken cancellationToken = default)
+    public async Task<IPagedResult<StatusCheckViewModel>> GetStatusAsync(CancellationToken cancellationToken = default)
     {
-        List<StatusCheckViewModel> statusCheckSet = new List<StatusCheckViewModel>();
+        IPagedResult<StatusCheckViewModel> statusCheckSet = new PagedResult<StatusCheckViewModel>();
 
-        await foreach (var statusCheck in httpClient.GetFromJsonAsAsyncEnumerable<StatusCheckViewModel>("/statuscheck", cancellationToken))
-        {
-            if (statusCheck is not null)
-            {
-                statusCheckSet.Add(statusCheck);
-            }
-        }
-        return statusCheckSet;
+        return await httpClient.GetFromJsonAsync<IPagedResult<StatusCheckViewModel>>("/statuscheck", cancellationToken) ?? statusCheckSet;
+
     }
 
     public async Task<List<HistoricalStatusDataOverviewChartViewModel>> GetHistoricalStatusData(long statusCheckId, CancellationToken cancellationToken = default)

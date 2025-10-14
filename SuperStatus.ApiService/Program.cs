@@ -15,11 +15,13 @@ using SuperStatus.ApiService.Configuration.Routing;
 using SuperStatus.ApiService.Configuration.Settings;
 using SuperStatus.Configuration;
 using SuperStatus.Data.DatabaseContext;
+using SuperStatus.Data.Entities;
 using SuperStatus.Data.Utilities;
 using SuperStatus.Data.ViewModels;
 using SuperStatus.Scheduler;
 using SuperStatus.Services;
 using SuperStatus.Services.Services;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Threading.RateLimiting;
 using ProblemDetailsOptions = Hellang.Middleware.ProblemDetails.ProblemDetailsOptions;
@@ -253,8 +255,8 @@ static void ConfigureEndpoints(WebApplication app)
 {
     app.MapGet("/statuscheck", async (IStatusCheckService statusCheckService) =>
     {
-        var statusCheck = await statusCheckService.GetStatusCheckViewModelSet();
-        if (statusCheck.Count == 0)
+        IPagedResult<StatusCheckViewModel> statusCheck = await statusCheckService.GetStatusCheckViewModelSet();
+        if (statusCheck.RowCount == 0)
         {
             return Results.NotFound("No status checks found.");
         }
@@ -271,5 +273,16 @@ static void ConfigureEndpoints(WebApplication app)
         await statusCheckService.AddOrUpdateStatusCheck(statusCheckToUpdate);
         return Results.Ok();
     }).RequireAuthorization();
+
+
+    app.MapGet("/incidents", async (IIncidentService incidentService) =>
+    {
+        IDictionary<DateTime, List<IncidentViewModel>> incidents = await incidentService.GetIncidentViewModelSetForDays();
+        if (incidents.Count == 0)
+        {
+            return Results.NotFound("No incidents found.");
+        }
+        return Results.Ok(incidents);
+    });
 }
 

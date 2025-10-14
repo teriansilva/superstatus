@@ -24,7 +24,7 @@ public static class SuperStatusDbInitializer
         }
         await SeedStatusChecks(dbContext);
     }
-     
+    
     private static async Task SeedStatusChecks(SuperStatusDb context)
     {
         if (context.StatusCheckSet.Any())

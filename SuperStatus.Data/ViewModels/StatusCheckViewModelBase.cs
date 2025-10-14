@@ -8,10 +8,15 @@ namespace SuperStatus.Data.ViewModels
     {
         public StatusCheckViewModelBase() 
         {
-            Title = string.Empty;
+            Title = string.Empty;  
             StatusCheckUrl = string.Empty;
             WebHookOnErrorUrl = string.Empty;
-            ServiceLogoUrl = string.Empty;
+            ServiceLogoUrl = "https://" + string.Empty;
+            Enabled = true;
+            ExpectedStatusCode = 200;
+            ExpectedResponseTimeInMs = 1000;
+            Description = string.Empty;
+            IsWebHookOnErrorEnabled = false;
         }
 
         public StatusCheckViewModelBase(StatusCheck statusCheck)

@@ -19,5 +19,7 @@ namespace SuperStatus.Data.DatabaseContext
         public DbSet<StatusCheck> StatusCheckSet { get; set; }
         public DbSet<HistoricalStatusData> HistoricalStatusDataSet { get; set; }
         public DbSet<HistoricalStatusAction> HistoricalStatusActionSet { get; set; }
+
+        public DbSet<Incident> IncidentSet { get; set; }
     }
 }

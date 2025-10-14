@@ -1,4 +1,5 @@
 ﻿@using SuperStatus.Configuration
+@using SuperStatus.Data.Entities
 @inject StatusApiClient StatusApi
 @implements IAsyncDisposable
 
@@ -16,7 +17,7 @@
             }
             else
             {
-                foreach (var statusCheck in statusCheckSet)
+                foreach (var statusCheck in statusCheckSet.Results)
                 {
                     <MudItem xs="12">
                         <StatusCheckOverviewCard statusCheck="statusCheck" />
@@ -30,7 +31,7 @@
 </MudGrid>
 
 @code {
-    private List<StatusCheckViewModel>? statusCheckSet;
+    private IPagedResult<StatusCheckViewModel>? statusCheckSet;
     private PeriodicTimer? timer;
     private CancellationTokenSource cts = new CancellationTokenSource();
 

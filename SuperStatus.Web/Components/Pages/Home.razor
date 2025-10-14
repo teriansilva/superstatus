@@ -1,7 +1,7 @@
 ﻿@page "/"
 @using Microsoft.AspNetCore.Components.Authorization
 @using SuperStatus.Web.Components.StatusCheckOverview
-
+@inject IDialogService DialogService
 
 <PageTitle>Home</PageTitle>
 
@@ -13,7 +13,7 @@
         <MudText Typo="Typo.h6">Status</MudText>
     </MudItem>
     <MudItem xs="12">
-        <StatusCheckList />
+        <SuperStatus.Web.Components.IncidentOverview.IncidentList />
     </MudItem>
     <MudItem xs="12">
         <MudGrid>
@@ -22,7 +22,7 @@
             <MudItem xs="12" sm="8" md="6" Class="d-flex align-center justify-center mud-width-full">
                 <AuthorizeView>
                     <Authorized>
-                        <MudFab Color="Color.Transparent" DropShadow="false" StartIcon="@Icons.Material.Filled.Add" Size="Size.Large" />
+                        <MudFab Color="Color.Transparent" DropShadow="false" StartIcon="@Icons.Material.Filled.Add" Size="Size.Large" OnClick="OpenStatusCheckAddDialogAsync" />
                     </Authorized>
                 </AuthorizeView>
             </MudItem>
@@ -32,6 +32,9 @@
     </MudItem>
     <MudItem xs="12" Class="d-flex align-center justify-center mud-width-full">
         <MudText Typo="Typo.h6">Incidents</MudText>
+    </MudItem>
+    <MudItem xs="12">
+        <SuperStatus.Web.Components.IncidentOverview.IncidentList />
     </MudItem>
     <MudItem xs="12">
         <MudGrid>
@@ -49,4 +52,25 @@
         </MudGrid>
     </MudItem>
 </MudGrid>
+
+@code
+{
+
+    private Task OpenStatusCheckAddDialogAsync()
+    {
+        var statusCheck = new StatusCheckViewModel();
+        var options = new DialogOptions { CloseOnEscapeKey = true, CloseButton = true };
+        var parameters = new DialogParameters<StatusCheckEditDialog> { { x => x.StatusCheck, statusCheck } };
+        return DialogService.ShowAsync<StatusCheckEditDialog>(statusCheck.Title, parameters, options);
+    }
+
+    /*private Task OpenIncidentAddDialogAsync()
+    {
+        var incident = new IncidentViewModel();
+        var options = new DialogOptions { CloseOnEscapeKey = true, CloseButton = true };
+        var parameters = new DialogParameters<IncidentEditDialog> { { x => x.Incident, incident } };
+        return DialogService.ShowAsync<IncidentEditDialog>(incident.Title, parameters, options);
+    }*/
+
+}
 

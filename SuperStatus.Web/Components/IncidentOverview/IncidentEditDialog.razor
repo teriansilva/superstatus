@@ -1,0 +1,73 @@
+﻿@using Humanizer
+@using Microsoft.AspNetCore.Components.Authorization
+@using SuperStatus.Data.Constants
+@using SuperStatus.Data.Entities
+
+@inject IncidentApiClient IncidentApi
+@inject IDialogService DialogService
+
+<MudDialog>
+    <DialogContent>
+        <MudForm @ref="_form">
+
+            <MudGrid>
+                <MudItem xs="12">
+                    <MudTextField T="string"
+                                  @bind-Value="Incident.Title"
+                                  Label="Title"
+                                  For="@(()=>Incident.Title)"
+                                  Required="true"
+                                  RequiredError="Title is required." />
+                </MudItem>
+ 
+            </MudGrid>
+
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Variant="Variant.Outlined" Color="Color.Secondary">Cancel</MudButton>
+        <MudButton OnClick="SubmitAsync" Disabled="@_submitting" Color="Color.Primary" Variant="Variant.Filled">
+            @(!_submitting ? "Save" : "Saving...")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public required IncidentViewModel Incident { get; set; }
+
+    private MudForm? _form;
+    private bool _submitting;
+
+    // Common 2xx success status codes
+   
+
+    private async Task SubmitAsync()
+    {
+        if (_form is null) return;
+        await _form.Validate();
+        if (!_form.IsValid) return;
+
+        _submitting = true;
+        try
+        {
+            await IncidentApi.UpdateOrAddIncident(Incident);
+            MudDialog.Close(DialogResult.Ok(Incident));
+        }
+        finally
+        {
+            _submitting = false;
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async void OnWebhookToggle(bool _)
+    {
+        // Revalidate dependent fields when webhook enabled/disabled
+        if (_form is not null)
+            await _form.Validate();
+        StateHasChanged();
+    }
+}

@@ -32,5 +32,6 @@ public static class SuperStatusDbRegistrations
         services.AddScoped<IStatusCheckRepository, StatusCheckRepository>();
         services.AddScoped<IHistoricalStatusDataRepository, HistoricalStatusDataRepository>();
         services.AddScoped<IHistoricalStatusActionRepository, HistoricalStatusActionRepository>();
+        services.AddScoped<IIncidentRepository, IncidentRepository>();
     }
 }

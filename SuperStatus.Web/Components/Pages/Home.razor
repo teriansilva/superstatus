@@ -1,6 +1,7 @@
 ﻿@page "/"
 @using Microsoft.AspNetCore.Components.Authorization
 @using SuperStatus.Web.Components.StatusCheckOverview
+@using SuperStatus.Web.Components.IncidentOverview
 @inject IDialogService DialogService
 
 <PageTitle>Home</PageTitle>
@@ -13,43 +14,45 @@
         <MudText Typo="Typo.h6">Status</MudText>
     </MudItem>
     <MudItem xs="12">
-        <SuperStatus.Web.Components.IncidentOverview.IncidentList />
+        <MudDivider />
     </MudItem>
     <MudItem xs="12">
         <MudGrid>
-            <MudItem xs="0" sm="2" md="3">
-            </MudItem>
-            <MudItem xs="12" sm="8" md="6" Class="d-flex align-center justify-center mud-width-full">
+            <MudItem xs="12" Class="d-flex align-center justify-center mud-width-full">
                 <AuthorizeView>
                     <Authorized>
-                        <MudFab Color="Color.Transparent" DropShadow="false" StartIcon="@Icons.Material.Filled.Add" Size="Size.Large" OnClick="OpenStatusCheckAddDialogAsync" />
+                        <MudFab Color="Color.Transparent" StartIcon="@Icons.Material.Filled.Add" Size="Size.Small" title="Add status check" OnClick="OpenStatusCheckAddDialogAsync" />
                     </Authorized>
                 </AuthorizeView>
             </MudItem>
-            <MudItem xs="0" sm="2" md="3">
-            </MudItem>
         </MudGrid>
+    </MudItem>
+    <MudItem xs="12">
+        <StatusCheckList />
+    </MudItem>
+   
+    <MudItem xs="12">
+        <MudDivider />
     </MudItem>
     <MudItem xs="12" Class="d-flex align-center justify-center mud-width-full">
         <MudText Typo="Typo.h6">Incidents</MudText>
     </MudItem>
     <MudItem xs="12">
-        <SuperStatus.Web.Components.IncidentOverview.IncidentList />
+        <MudDivider />
     </MudItem>
     <MudItem xs="12">
         <MudGrid>
-            <MudItem xs="0" sm="2" md="3">
-            </MudItem>
-            <MudItem xs="12" sm="8" md="6" Class="d-flex align-center justify-center mud-width-full">
+            <MudItem xs="12" Class="d-flex align-center justify-center mud-width-full">
                 <AuthorizeView>
                     <Authorized>
-                        <MudFab Color="Color.Transparent" DropShadow="false" StartIcon="@Icons.Material.Filled.Add" Size="Size.Large" />
+                        <MudFab Color="Color.Transparent" StartIcon="@Icons.Material.Filled.Add" Size="Size.Small" OnClick="OpenIncidentAddDialogAsync" />
                     </Authorized>
                 </AuthorizeView>
             </MudItem>
-            <MudItem xs="0" sm="2" md="3">
-            </MudItem>
         </MudGrid>
+    </MudItem>
+    <MudItem xs="12">
+        <SuperStatus.Web.Components.IncidentOverview.IncidentList />
     </MudItem>
 </MudGrid>
 
@@ -64,13 +67,13 @@
         return DialogService.ShowAsync<StatusCheckEditDialog>(statusCheck.Title, parameters, options);
     }
 
-    /*private Task OpenIncidentAddDialogAsync()
+    private Task OpenIncidentAddDialogAsync()
     {
         var incident = new IncidentViewModel();
         var options = new DialogOptions { CloseOnEscapeKey = true, CloseButton = true };
         var parameters = new DialogParameters<IncidentEditDialog> { { x => x.Incident, incident } };
         return DialogService.ShowAsync<IncidentEditDialog>(incident.Title, parameters, options);
-    }*/
+    }
 
 }
 

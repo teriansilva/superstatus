@@ -206,7 +206,6 @@ namespace SuperStatus.Services.Services
                 return FailType.NoFail;
             }
         }
-
         private async Task<bool> IsWebhookThrottleInEffect(StatusCheck statusCheck)
         {
             HistoricalStatusAction? statusAction = await historicalStatusActionRepository.GetMostRecentHistoricalStatusAction(statusCheck.Id);

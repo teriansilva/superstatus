@@ -42,20 +42,21 @@ namespace SuperStatus.Data.Repositories
                 days.Add(referenceTime.AddDays(-i).Date);
             }
 
-            var result = DbSet
+            var result = await DbSet
                 .Where(x => x.Created >= startTime
-                    && x.Created <= referenceTime).GroupBy(x => x.Created);
+                    && x.Created <= referenceTime)
+                .GroupBy(x => x.Created.Date)
+                .ToListAsync();
 
             IDictionary<DateTime, IList<Incident>> incidentsByDay = new Dictionary<DateTime, IList<Incident>>();
             
             foreach (var day in days)
             {
-                var incidentsForDay = await result
+                var incidentsForDay = result
                     .Where(g => g.Key.Date == day)
                     .SelectMany(g => g)
                     .OrderByDescending(x => x.Created)
-                    .Take(maxIncidentsPerDay)
-                    .ToListAsync();
+                    .Take(maxIncidentsPerDay).ToList();
                 incidentsByDay[day] = incidentsForDay;
             }
 

@@ -70,6 +70,12 @@ builder.Services.AddTransient(sp =>
     return new StatusApiClient(factory.CreateClient("apiservice"));
 });
 
+builder.Services.AddTransient(sp =>
+{
+    var factory = sp.GetRequiredService<IHttpClientFactory>();
+    return new IncidentApiClient(factory.CreateClient("apiservice"));
+});
+
 
 builder.Services.AddMudServices();
 

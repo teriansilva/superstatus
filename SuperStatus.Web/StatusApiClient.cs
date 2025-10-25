@@ -1,7 +1,5 @@
-using Microsoft.AspNetCore.Authentication;
 using SuperStatus.Data.Entities;
 using SuperStatus.Data.ViewModels;
-using System.Net.Http.Headers;
 
 namespace SuperStatus.Web;
 
@@ -11,7 +9,7 @@ public class StatusApiClient(HttpClient httpClient)
     {
         IPagedResult<StatusCheckViewModel> statusCheckSet = new PagedResult<StatusCheckViewModel>();
 
-        return await httpClient.GetFromJsonAsync<IPagedResult<StatusCheckViewModel>>("/statuscheck", cancellationToken) ?? statusCheckSet;
+        return await httpClient.GetFromJsonAsync<PagedResult<StatusCheckViewModel>>("/statuscheck", cancellationToken) ?? statusCheckSet;
 
     }
 

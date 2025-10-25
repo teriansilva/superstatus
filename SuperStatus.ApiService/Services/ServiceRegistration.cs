@@ -18,6 +18,7 @@ namespace SuperStatus.Services
             services.AddHttpClient();
 
             services.AddScoped<IStatusCheckService, StatusCheckService>();
+            services.AddScoped<IIncidentService, IncidentService>();
 
         }
     }

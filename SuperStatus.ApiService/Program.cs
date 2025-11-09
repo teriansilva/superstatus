@@ -13,20 +13,20 @@ using Quartz;
 using SuperStatus.ApiService.Configuration.ErrorHandling;
 using SuperStatus.ApiService.Configuration.Routing;
 using SuperStatus.ApiService.Configuration.Settings;
-using SuperStatus.Configuration;
+using SuperStatus.ApiService.Endpoints;
 using SuperStatus.Data.DatabaseContext;
 using SuperStatus.Data.Entities;
+using SuperStatus.Data.Repositories;
 using SuperStatus.Data.Utilities;
 using SuperStatus.Data.ViewModels;
 using SuperStatus.Scheduler;
 using SuperStatus.Services;
 using SuperStatus.Services.Services;
-using System.Collections.Generic;
 using System.Globalization;
 using System.Threading.RateLimiting;
 using ProblemDetailsOptions = Hellang.Middleware.ProblemDetails.ProblemDetailsOptions;
 
-WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
+var builder = WebApplication.CreateBuilder(args);
 
 ConfigureServices(builder);
 ConfigureReverseProxy(builder);
@@ -37,8 +37,12 @@ WebApplication app = builder.Build();
 ConfigureMiddleware(app);
 await SuperStatusDbInitializer.Seed(app.Services, EnvironmentUtilities.IsDevEnvironment(app.Environment.EnvironmentName));
 
-ConfigureEndpoints(app);
+await ConfigureQuartzFromDatabaseAsync(app);
+
 UseAuthentication(app);
+
+app.MapConfigurationEndpoints();
+app.MapStatusEndpoints();
 
 app.Run();
 return;
@@ -93,6 +97,7 @@ static void ConfigureMiddleware(WebApplication webApplication)
 
     webApplication.MapControllers();
 }
+
 void ConfigureReverseProxy(WebApplicationBuilder applicationBuilder)
 {
     applicationBuilder.WebHost.ConfigureKestrel(serverOptions =>
@@ -128,36 +133,76 @@ void ConfigureServices(WebApplicationBuilder applicationBuilder)
 
 void ConfigureQuartz(WebApplicationBuilder builder)
 {
-
-    if (SuperStatusConfig.RunJobAtStartup)
+    // Register Quartz with placeholder configuration
+    // Actual jobs will be scheduled after database is seeded
+    builder.Services.AddQuartz(q =>
     {
-        builder.Services.AddQuartz(q =>
+        q.SchedulerId = "JobScheduler";
+        q.SchedulerName = "Job Scheduler";
+    });
+
+    builder.Services.AddQuartzHostedService(q => q.WaitForJobsToComplete = true);
+}
+
+static async Task ConfigureQuartzFromDatabaseAsync(WebApplication app)
+{
+    try
+    {
+        using var scope = app.Services.CreateScope();
+        var configRepo = scope.ServiceProvider.GetRequiredService<IConfigurationRepository>();
+        var schedulerFactory = scope.ServiceProvider.GetRequiredService<ISchedulerFactory>();
+        
+        var config = await configRepo.GetConfigurationAsync();
+        
+        if (config.RunJobAtStartup)
         {
-            q.SchedulerId = "JobScheduler";
-            q.SchedulerName = "Job Scheduler";
-            q.AddJob<SuperStatusCheckJob>(opts => opts.WithIdentity(SuperStatusConfig.JobName));
-            q.AddJob<SuperStatusCleanUpJob>(opts => opts.WithIdentity(typeof(SuperStatusCleanUpJob).Name));
-            q.AddTrigger(opts => opts
-                .ForJob(SuperStatusConfig.JobName)
-                .WithIdentity($"{SuperStatusConfig.JobName}-interval")
+            var scheduler = await schedulerFactory.GetScheduler();
+            
+            // Define the status check job
+            var statusCheckJob = JobBuilder.Create<SuperStatusCheckJob>()
+                .WithIdentity(config.JobName)
+                .Build();
+            
+            var statusCheckTrigger = TriggerBuilder.Create()
+                .WithIdentity($"{config.JobName}-interval")
                 .WithDescription("Status Check default job")
                 .WithSimpleSchedule(x => x
-                    .WithIntervalInSeconds(SuperStatusConfig.JobIntervallInSeconds)
+                    .WithIntervalInSeconds(config.JobIntervallInSeconds)
                     .RepeatForever())
-            );
-            q.AddTrigger(opts => opts
-                .ForJob(typeof(SuperStatusCleanUpJob).Name)
+                .StartNow()
+                .Build();
+            
+            // Define the cleanup job
+            var cleanupJob = JobBuilder.Create<SuperStatusCleanUpJob>()
+                .WithIdentity(typeof(SuperStatusCleanUpJob).Name)
+                .Build();
+            
+            var cleanupTrigger = TriggerBuilder.Create()
                 .WithIdentity($"{typeof(SuperStatusCleanUpJob).Name}-interval")
                 .WithDescription("Status Check db cleanup job")
                 .WithSimpleSchedule(x => x
-                    .WithIntervalInMinutes(SuperStatusConfig.DbCleanUpJobIntervallInMinutes)
+                    .WithIntervalInMinutes(config.DbCleanUpJobIntervallInMinutes)
                     .RepeatForever())
-            );
-        });
-
-        builder.Services.AddQuartzHostedService(q => q.WaitForJobsToComplete = true);
+                .StartNow()
+                .Build();
+            
+            // Schedule the jobs
+            await scheduler.ScheduleJob(statusCheckJob, statusCheckTrigger);
+            await scheduler.ScheduleJob(cleanupJob, cleanupTrigger);
+            
+            app.Logger.LogInformation("Quartz jobs scheduled successfully from database configuration.");
+        }
+        else
+        {
+            app.Logger.LogInformation("Jobs are disabled in configuration. Quartz scheduler started but no jobs scheduled.");
+        }
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogError(ex, "Failed to configure Quartz from database. Jobs will not be scheduled.");
     }
 }
+
 void AddControllers(IServiceCollection services)
 {
     services.AddControllers(options =>
@@ -216,6 +261,7 @@ void AddRateLimiter(IServiceCollection services, ConfigurationManager configurat
     });
 
 }
+
 void ConfigureProblemDetails(ProblemDetailsOptions options)
 {
     options.IncludeExceptionDetails = (ctx, _) =>
@@ -250,39 +296,3 @@ void AddSwagger(IServiceCollection services)
         c.DescribeAllParametersInCamelCase();
     });
 }
-
-static void ConfigureEndpoints(WebApplication app)
-{
-    app.MapGet("/statuscheck", async (IStatusCheckService statusCheckService) =>
-    {
-        IPagedResult<StatusCheckViewModel> statusCheck = await statusCheckService.GetStatusCheckViewModelSet();
-        if (statusCheck.RowCount == 0)
-        {
-            return Results.NotFound("No status checks found.");
-        }
-        return Results.Ok(statusCheck);
-    });
-
-    app.MapGet("/statuscheck/gethistoricaldata/{id}", async (int id, IStatusCheckService statusCheckService) =>
-    {
-        return await statusCheckService.GetHistoricalStatusDataOverviewForRecentTimeRange(id, SuperStatusConfig.StatusCheckGraphViewMaxDays);
-    });
-
-    app.MapPost("/statuscheck/edit", async (StatusCheckViewModelBase statusCheckToUpdate, IStatusCheckService statusCheckService) =>
-    {
-        await statusCheckService.AddOrUpdateStatusCheck(statusCheckToUpdate);
-        return Results.Ok();
-    }).RequireAuthorization();
-
-
-    app.MapGet("/incidents", async (IIncidentService incidentService) =>
-    {
-        IDictionary<DateTime, List<IncidentViewModel>> incidents = await incidentService.GetIncidentViewModelSetForDays();
-        if (incidents.Count == 0)
-        {
-            return Results.NotFound("No incidents found.");
-        }
-        return Results.Ok(incidents);
-    });
-}
-

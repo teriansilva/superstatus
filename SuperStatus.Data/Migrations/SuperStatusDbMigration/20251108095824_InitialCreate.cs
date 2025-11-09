@@ -13,6 +13,31 @@ namespace SuperStatus.Data.Migrations.SuperStatusDbMigration
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.CreateTable(
+                name: "ConfigurationSet",
+                columns: table => new
+                {
+                    Id = table.Column<long>(type: "bigint", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    Title = table.Column<string>(type: "text", nullable: false),
+                    Description = table.Column<string>(type: "text", nullable: false),
+                    LogoUrl = table.Column<string>(type: "text", nullable: false),
+                    Favicon = table.Column<string>(type: "text", nullable: false),
+                    Theme = table.Column<string>(type: "text", nullable: false),
+                    ShowSupportLink = table.Column<bool>(type: "boolean", nullable: false),
+                    JobIntervallInSeconds = table.Column<int>(type: "integer", nullable: false),
+                    DbCleanUpJobIntervallInMinutes = table.Column<int>(type: "integer", nullable: false),
+                    JobName = table.Column<string>(type: "text", nullable: false),
+                    RunJobAtStartup = table.Column<bool>(type: "boolean", nullable: false),
+                    StatusCheckViewRefreshIntervalInSeconds = table.Column<int>(type: "integer", nullable: false),
+                    StatusCheckGraphViewMaxDays = table.Column<int>(type: "integer", nullable: false),
+                    ShowSlowResponseTimeInGraph = table.Column<bool>(type: "boolean", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_ConfigurationSet", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "IncidentSet",
                 columns: table => new
                 {
@@ -123,6 +148,9 @@ namespace SuperStatus.Data.Migrations.SuperStatusDbMigration
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.DropTable(
+                name: "ConfigurationSet");
+
             migrationBuilder.DropTable(
                 name: "HistoricalStatusActionSet");
 

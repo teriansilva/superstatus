@@ -76,6 +76,13 @@ builder.Services.AddTransient(sp =>
     return new IncidentApiClient(factory.CreateClient("apiservice"));
 });
 
+builder.Services.AddTransient(sp =>
+{
+    var factory = sp.GetRequiredService<IHttpClientFactory>();
+    var httpContextAccessor = sp.GetRequiredService<IHttpContextAccessor>();
+    return new ConfigurationApiClient(factory.CreateClient("apiservice"), httpContextAccessor);
+});
+
 
 builder.Services.AddMudServices();
 

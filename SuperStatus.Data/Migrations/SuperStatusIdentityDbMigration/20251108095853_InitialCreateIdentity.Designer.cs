@@ -12,7 +12,7 @@ using SuperStatus.Data.DatabaseContext;
 namespace SuperStatus.Data.Migrations.SuperStatusIdentityDbMigration
 {
     [DbContext(typeof(SuperStatusIdentityDb))]
-    [Migration("20250817105236_InitialCreateIdentity")]
+    [Migration("20251108095853_InitialCreateIdentity")]
     partial class InitialCreateIdentity
     {
         /// <inheritdoc />

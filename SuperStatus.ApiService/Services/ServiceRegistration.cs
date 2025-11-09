@@ -19,6 +19,7 @@ namespace SuperStatus.Services
 
             services.AddScoped<IStatusCheckService, StatusCheckService>();
             services.AddScoped<IIncidentService, IncidentService>();
+            services.AddScoped<IConfigurationService, ConfigurationService>();
 
         }
     }

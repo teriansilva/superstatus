@@ -22,6 +22,64 @@ namespace SuperStatus.Data.Migrations.SuperStatusDbMigration
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("SuperStatus.Data.Entities.Configuration", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("DbCleanUpJobIntervallInMinutes")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Favicon")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("JobIntervallInSeconds")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("JobName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("LogoUrl")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<bool>("RunJobAtStartup")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("ShowSlowResponseTimeInGraph")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("ShowSupportLink")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("StatusCheckGraphViewMaxDays")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("StatusCheckViewRefreshIntervalInSeconds")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Theme")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("ConfigurationSet");
+                });
+
             modelBuilder.Entity("SuperStatus.Data.Entities.HistoricalStatusAction", b =>
                 {
                     b.Property<long>("Id")

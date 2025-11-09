@@ -1,5 +1,4 @@
 ﻿@using Humanizer
-@using SuperStatus.Configuration
 @using SuperStatus.Data.Entities
 @inject IncidentApiClient IncidentApi
 
@@ -38,7 +37,6 @@
                                 <MudText Typo="Typo.subtitle1">@incident.Title</MudText>
                                 <MudText Typo="Typo.body2" Color="Color.Secondary">@incident.Description</MudText>
                                 <MudText Typo="Typo.caption" Color="Color.Secondary">Occurred @incident.Created.Humanize()</MudText>
-
                             </MudPaper>
                         </MudItem>
                     }

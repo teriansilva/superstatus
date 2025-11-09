@@ -22,9 +22,39 @@ public static class SuperStatusDbInitializer
         {
             await dbContext.Database.MigrateAsync();
         }
+        await SeedConfiguration(dbContext);
         await SeedStatusChecks(dbContext);
     }
     
+    private static async Task SeedConfiguration(SuperStatusDb context)
+    {
+        if (context.ConfigurationSet.Any())
+        {
+            return; // Configuration has been seeded
+        }
+
+        var configuration = new Configuration
+        {
+            Id = 1,
+            Title = "SuperStatus",
+            Description = "System Status Dashboard",
+            LogoUrl = "/logo.png",
+            Favicon = "/favicon.ico",
+            Theme = "light",
+            ShowSupportLink = true,
+            JobIntervallInSeconds = 60,
+            DbCleanUpJobIntervallInMinutes = 1440,
+            JobName = "StatusCheckJob",
+            RunJobAtStartup = true,
+            StatusCheckViewRefreshIntervalInSeconds = 30,
+            StatusCheckGraphViewMaxDays = 30,
+            ShowSlowResponseTimeInGraph = true
+        };
+
+        context.ConfigurationSet.Add(configuration);
+        await context.SaveChangesAsync();
+    }
+
     private static async Task SeedStatusChecks(SuperStatusDb context)
     {
         if (context.StatusCheckSet.Any())

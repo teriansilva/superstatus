@@ -1,9 +1,11 @@
 ﻿@using Humanizer
 @using Microsoft.AspNetCore.Components.Authorization
-@using SuperStatus.Configuration
 @using SuperStatus.Data.Constants
+@using SuperStatus.Data.Repositories
 
 @inject IDialogService DialogService
+@inject ConfigurationApiClient ConfigurationApiClient
+@implements IAsyncDisposable
 
 <MudCard Outlined="true" Class="pa-2">
     <MudCardHeader>
@@ -67,11 +69,18 @@
     private CancellationTokenSource? _cts;
     private Task? _loopTask;
 
-    private int IntervalSeconds => Math.Max(1, SuperStatusConfig.JobIntervallInSeconds);
+    private int _jobIntervalInSeconds;
+    private int IntervalSeconds => Math.Max(1, _jobIntervalInSeconds);
     private double ElapsedSeconds => (DateTime.UtcNow - _startUtc).TotalSeconds;
 
     // Update every 100ms for smoothness (tweak: 33ms ~ 30fps, 16ms ~ 60fps)
     private static readonly TimeSpan UpdateInterval = TimeSpan.FromMilliseconds(100);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var config = await ConfigurationApiClient.GetConfigurationAsync();
+        _jobIntervalInSeconds = config.JobIntervallInSeconds;
+    }
 
     protected override void OnParametersSet()
     {

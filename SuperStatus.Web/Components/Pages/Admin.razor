@@ -1,47 +1,251 @@
 ﻿@page "/admin"
-@using SuperStatus.Web.Components.StatusCheckOverview
+@using SuperStatus.Data.Entities
+@using SuperStatus.Web
+@inject ConfigurationApiClient ConfigurationClient
+@inject ISnackbar Snackbar
 @attribute [Authorize]
+@rendermode InteractiveServer
+
 <PageTitle>Admin</PageTitle>
 
 <MudGrid>
     <MudItem xs="12" Class="d-flex align-center justify-center mud-width-full">
+        <MudText Typo="Typo.h4">Admin Settings</MudText>    
+    </MudItem>
 
-    </MudItem>
-    <MudItem xs="12" Class="d-flex align-center justify-center mud-width-full">
-        <MudText Typo="Typo.h6">Instance Settings</MudText>
-    </MudItem>
-    <MudItem xs="12">
-        <MudPaper Class="pa-4">
-            <MudForm>
-                <MudTextField T="string" Label="Username" Required="true" RequiredError="User name is required!" />
-                <MudTextField T="string" Label="Email" Required="true" RequiredError="Email is required!"
-                               />
-                <MudTextField T="string" Label="Password" HelperText="Choose a strong password" 
-                              InputType="InputType.Password"
-                               Required="true"
-                              RequiredError="Password is required!" />
-                <MudTextField T="string"
-                              Label="Password" HelperText="Repeat the password" InputType="InputType.Password"
-                              />
-                <div class="d-flex">
-                    <MudRadioGroup T="string" Required="true" RequiredError="Account type is required!">
-                        <MudRadio Value="@("Personal")">Personal</MudRadio>
-                        <MudRadio Value="@("Professional")">Professional</MudRadio>
-                    </MudRadioGroup>
-                </div>
-                <div class="d-flex align-center justify-space-between">
-                    <MudCheckBox T="bool" Required="true" RequiredError="You must agree" Label="I agree!" />
-                    <MudButton Variant="Variant.Filled" Color="Color.Primary"  Class="ml-auto">Register</MudButton>
-                </div>
-            </MudForm>
-        </MudPaper>
-        <MudPaper Class="pa-4 mt-4">
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" DropShadow="false">Validate</MudButton>
-            <MudButton Variant="Variant.Filled" Color="Color.Secondary" DropShadow="false"  Class="mx-2">Reset</MudButton>
-            <MudButton Variant="Variant.Filled" DropShadow="false" >Reset Validation</MudButton>
-        </MudPaper>
-    </MudItem>
-    <MudItem xs="12" Class="d-flex align-center justify-center mud-width-full">
-        <MudText Typo="Typo.h6">Job Settings</MudText>
-    </MudItem>
+    @if (_configuration == null)
+    {
+        <MudItem xs="12" Class="d-flex align-center justify-center">
+            <MudProgressCircular Color="Color.Primary" Indeterminate="true" />
+        </MudItem>
+    }
+    else
+    {
+        <MudItem xs="12">
+            <MudText Typo="Typo.h6" Class="mb-4">Instance Settings</MudText>
+            <MudPaper Class="pa-4">
+                <MudForm @ref="_form" @bind-IsValid="@_isValid">
+                    <MudGrid>
+                        <MudItem xs="12" md="6">
+                            <MudTextField @bind-Value="_configuration.Title" 
+                                        Label="Title" 
+                                        Required="true" 
+                                        RequiredError="Title is required!"
+                                        Variant="Variant.Outlined" />
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudTextField @bind-Value="_configuration.Description" 
+                                        Label="Description" 
+                                        Variant="Variant.Outlined" />
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudTextField @bind-Value="_configuration.LogoUrl" 
+                                        Label="Logo URL" 
+                                        Variant="Variant.Outlined" />
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudTextField @bind-Value="_configuration.Favicon" 
+                                        Label="Favicon" 
+                                        Variant="Variant.Outlined" />
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudTextField @bind-Value="_configuration.Theme" 
+                                        Label="Theme" 
+                                        Variant="Variant.Outlined" />
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudSwitch @bind-Value="_configuration.ShowSupportLink" 
+                                     Label="Show Support Link" 
+                                     Color="Color.Primary" />
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudNumericField @bind-Value="_configuration.StatusCheckViewRefreshIntervalInSeconds" 
+                                           Label="View Refresh Interval (seconds)" 
+                                           Required="true"
+                                           Min="5"
+                                           Variant="Variant.Outlined" />
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudNumericField @bind-Value="_configuration.StatusCheckGraphViewMaxDays" 
+                                           Label="Graph View Max Days" 
+                                           Required="true"
+                                           Min="1"
+                                           Variant="Variant.Outlined" />
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudSwitch @bind-Value="_configuration.ShowSlowResponseTimeInGraph" 
+                                     Label="Show Slow Response Time in Graph" 
+                                     Color="Color.Primary" />
+                        </MudItem>
+                    </MudGrid>
+                </MudForm>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12">
+            <MudText Typo="Typo.h6" Class="mb-4">Job Settings</MudText>
+            <MudPaper Class="pa-4">
+                <MudGrid>
+                    <MudItem xs="12" md="6">
+                        <MudTextField @bind-Value="_configuration.JobName" 
+                                    Label="Job Name" 
+                                    Required="true"
+                                    Variant="Variant.Outlined" />
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <MudNumericField @bind-Value="_configuration.JobIntervallInSeconds" 
+                                       Label="Job Interval (seconds)" 
+                                       Required="true"
+                                       Min="30"
+                                       Variant="Variant.Outlined" />
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <MudNumericField @bind-Value="_configuration.DbCleanUpJobIntervallInMinutes" 
+                                       Label="DB Cleanup Interval (minutes)" 
+                                       Required="true"
+                                       Min="60"
+                                       Variant="Variant.Outlined" />
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <MudSwitch @bind-Value="_configuration.RunJobAtStartup" 
+                                 Label="Run Job at Startup" 
+                                 Color="Color.Primary" />
+                    </MudItem>
+                </MudGrid>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12">
+            <MudPaper Class="pa-4">
+                <MudStack Row="true" Spacing="2">
+                    <MudButton Variant="Variant.Filled" 
+                             Color="Color.Primary" 
+                             OnClick="SaveConfiguration"
+                             Disabled="@(!_isValid || _isSaving)">
+                        @if (_isSaving)
+                        {
+                            <MudProgressCircular Class="ms-n1" Size="Size.Small" Indeterminate="true" />
+                            <MudText Class="ms-2">Saving...</MudText>
+                        }
+                        else
+                        {
+                            <MudText>Save Configuration</MudText>
+                        }
+                    </MudButton>
+                    <MudButton Variant="Variant.Filled" 
+                             Color="Color.Secondary" 
+                             OnClick="ResetForm"
+                             Disabled="@_isSaving">
+                        Reset
+                    </MudButton>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+    }
 </MudGrid>
+
+@code {
+    private Configuration? _configuration;
+    private Configuration? _originalConfiguration;
+    private MudForm? _form;
+    private bool _isValid;
+    private bool _isSaving;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadConfiguration();
+    }
+
+    private async Task LoadConfiguration()
+    {
+        try
+        {
+            _configuration = await ConfigurationClient.GetConfigurationAsync();
+            _originalConfiguration = new Configuration
+            {
+                Id = _configuration.Id,
+                Title = _configuration.Title,
+                Description = _configuration.Description,
+                LogoUrl = _configuration.LogoUrl,
+                Favicon = _configuration.Favicon,
+                Theme = _configuration.Theme,
+                ShowSupportLink = _configuration.ShowSupportLink,
+                JobIntervallInSeconds = _configuration.JobIntervallInSeconds,
+                DbCleanUpJobIntervallInMinutes = _configuration.DbCleanUpJobIntervallInMinutes,
+                JobName = _configuration.JobName,
+                RunJobAtStartup = _configuration.RunJobAtStartup,
+                StatusCheckViewRefreshIntervalInSeconds = _configuration.StatusCheckViewRefreshIntervalInSeconds,
+                StatusCheckGraphViewMaxDays = _configuration.StatusCheckGraphViewMaxDays,
+                ShowSlowResponseTimeInGraph = _configuration.ShowSlowResponseTimeInGraph
+            };
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error loading configuration: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task SaveConfiguration()
+    {
+        if (_configuration == null || _form == null) return;
+
+        await _form.Validate();
+        if (!_isValid) return;
+
+        _isSaving = true;
+        try
+        {
+            await ConfigurationClient.UpdateConfigurationAsync(_configuration);
+            Snackbar.Add("Configuration saved successfully!", Severity.Success);
+            
+            // Update the original configuration
+            _originalConfiguration = new Configuration
+            {
+                Id = _configuration.Id,
+                Title = _configuration.Title,
+                Description = _configuration.Description,
+                LogoUrl = _configuration.LogoUrl,
+                Favicon = _configuration.Favicon,
+                Theme = _configuration.Theme,
+                ShowSupportLink = _configuration.ShowSupportLink,
+                JobIntervallInSeconds = _configuration.JobIntervallInSeconds,
+                DbCleanUpJobIntervallInMinutes = _configuration.DbCleanUpJobIntervallInMinutes,
+                JobName = _configuration.JobName,
+                RunJobAtStartup = _configuration.RunJobAtStartup,
+                StatusCheckViewRefreshIntervalInSeconds = _configuration.StatusCheckViewRefreshIntervalInSeconds,
+                StatusCheckGraphViewMaxDays = _configuration.StatusCheckGraphViewMaxDays,
+                ShowSlowResponseTimeInGraph = _configuration.ShowSlowResponseTimeInGraph
+            };
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Error saving configuration: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private void ResetForm()
+    {
+        if (_originalConfiguration != null && _configuration != null)
+        {
+            _configuration.Title = _originalConfiguration.Title;
+            _configuration.Description = _originalConfiguration.Description;
+            _configuration.LogoUrl = _originalConfiguration.LogoUrl;
+            _configuration.Favicon = _originalConfiguration.Favicon;
+            _configuration.Theme = _originalConfiguration.Theme;
+            _configuration.ShowSupportLink = _originalConfiguration.ShowSupportLink;
+            _configuration.JobIntervallInSeconds = _originalConfiguration.JobIntervallInSeconds;
+            _configuration.DbCleanUpJobIntervallInMinutes = _originalConfiguration.DbCleanUpJobIntervallInMinutes;
+            _configuration.JobName = _originalConfiguration.JobName;
+            _configuration.RunJobAtStartup = _originalConfiguration.RunJobAtStartup;
+            _configuration.StatusCheckViewRefreshIntervalInSeconds = _originalConfiguration.StatusCheckViewRefreshIntervalInSeconds;
+            _configuration.StatusCheckGraphViewMaxDays = _originalConfiguration.StatusCheckGraphViewMaxDays;
+            _configuration.ShowSlowResponseTimeInGraph = _originalConfiguration.ShowSlowResponseTimeInGraph;
+            
+            Snackbar.Add("Form reset to saved values", Severity.Info);
+        }
+    }
+}

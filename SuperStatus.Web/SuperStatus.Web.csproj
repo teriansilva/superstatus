@@ -17,7 +17,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\SuperStatus.Configuration\SuperStatus.Configuration.csproj" />
     <ProjectReference Include="..\SuperStatus.Data\SuperStatus.Data.csproj" />
     <ProjectReference Include="..\SuperStatus.ServiceDefaults\SuperStatus.ServiceDefaults.csproj" />
   </ItemGroup>

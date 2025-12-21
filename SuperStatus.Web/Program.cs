@@ -1,7 +1,9 @@
 using Duende.AccessTokenManagement;
+using Duende.AccessTokenManagement.OpenIdConnect;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.Components.Authorization;
 using MudBlazor.Services;
 using SuperStatus.Web;
 using SuperStatus.Web.Components;
@@ -22,15 +24,13 @@ builder.Services.AddHttpContextAccessor();
 
 builder.Services.AddAuthentication(options =>
 {
-    options.DefaultScheme =
-        CookieAuthenticationDefaults.AuthenticationScheme;
-    options.DefaultChallengeScheme =
-        OpenIdConnectDefaults.AuthenticationScheme;
+    options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;
 })
 .AddCookie(CookieAuthenticationDefaults.AuthenticationScheme)
 .AddOpenIdConnect(OpenIdConnectDefaults.AuthenticationScheme, options =>
 {
-    options.SignInScheme = "Cookies";
+    options.SignInScheme = CookieAuthenticationDefaults.AuthenticationScheme;
     options.Authority = Environment.GetEnvironmentVariable("IDP_HTTP");
     options.ClientId = "aspNetCoreAuth";
     options.ClientSecret = "some_secret";
@@ -42,45 +42,42 @@ builder.Services.AddAuthentication(options =>
     options.SignedOutRedirectUri = "/";
     options.RequireHttpsMetadata = false; //Todo: set to true in production
     options.GetClaimsFromUserInfoEndpoint = true;
+    
+    // Request API scope so user access token can call the API
+    options.Scope.Add("api");
 });
 
-// Client credentials token management (machine-to-machine)
-builder.Services
-    .AddClientCredentialsTokenManagement()
-    .AddClient(ClientCredentialsClientName.Parse("apiservice"), client =>
-    {
-        var authority = Environment.GetEnvironmentVariable("IDP_HTTP");
-        client.TokenEndpoint = new Uri($"{authority}/connect/token");
+// User access token management (for logged-in users)
+builder.Services.AddOpenIdConnectAccessTokenManagement();
 
-        client.ClientId = ClientId.Parse("aspNetCoreAuth");
-        client.ClientSecret = ClientSecret.Parse("some_secret");
-        client.Scope = Scope.Parse("api");
-    });
+// Named HttpClient WITHOUT token handler for anonymous endpoints
+builder.Services.AddHttpClient("apiservice-anon", c =>
+    c.BaseAddress = new Uri("https+http://apiservice"));
 
-// Typed HttpClient that automatically requests/refreshes app tokens
-builder.Services.AddClientCredentialsHttpClient(
-    "apiservice",
-    ClientCredentialsClientName.Parse("apiservice"),
-    c => c.BaseAddress = new Uri("https+http://apiservice"));
+// Named HttpClient WITH user access token handler for authorized endpoints
+builder.Services.AddHttpClient("apiservice-auth", c =>
+    c.BaseAddress = new Uri("https+http://apiservice"))
+    .AddUserAccessTokenHandler();
 
-// Wire the named client into your typed client
+// Typed clients - pass IHttpClientFactory so they can choose the right client
 builder.Services.AddTransient(sp =>
 {
     var factory = sp.GetRequiredService<IHttpClientFactory>();
-    return new StatusApiClient(factory.CreateClient("apiservice"));
+    var authStateProvider = sp.GetRequiredService<AuthenticationStateProvider>();
+    return new StatusApiClient(factory, authStateProvider);
 });
 
 builder.Services.AddTransient(sp =>
 {
     var factory = sp.GetRequiredService<IHttpClientFactory>();
-    return new IncidentApiClient(factory.CreateClient("apiservice"));
+    return new IncidentApiClient(factory);
 });
 
 builder.Services.AddTransient(sp =>
 {
     var factory = sp.GetRequiredService<IHttpClientFactory>();
     var httpContextAccessor = sp.GetRequiredService<IHttpContextAccessor>();
-    return new ConfigurationApiClient(factory.CreateClient("apiservice"), httpContextAccessor);
+    return new ConfigurationApiClient(factory, httpContextAccessor);
 });
 
 

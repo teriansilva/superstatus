@@ -11,9 +11,9 @@ namespace SuperStatus.Services.Services
 {
     public interface IStatusCheckService
     {
-        Task<IPagedResult<StatusCheck>> GetStatusCheckSet(int page = 1, int pageSize = 0);
+        Task<IPagedResult<StatusCheck>> GetStatusCheckSet(int page = 1, int pageSize = 0, bool onlyEnabled = true);
         Task<StatusCheck?> GetStatusCheck(long StatusCheckId);
-        Task<IPagedResult<StatusCheckViewModel>> GetStatusCheckViewModelSet(int page = 1, int pageSize = 0);
+        Task<IPagedResult<StatusCheckViewModel>> GetStatusCheckViewModelSet(int page = 1, int pageSize = 0, bool onlyEnabled = true);
         Task<HistoricalStatusDataViewModel?> GetMostRecentHistoricalStatusData(long statusCheckId);
         Task<IPagedResult<HistoricalStatusData>> GetPagedHistoricalStatusDataForStatusCheckId(long statusCheckId, int page, int pageSize = 0);
         Task<IDictionary<DateTime, List<HistoricalStatusData>>> GetHistoricalStatusDataForStatusCheckIdByDays(long statusCheckId, int timeRangeInDays);
@@ -25,17 +25,17 @@ namespace SuperStatus.Services.Services
     }
     public class StatusCheckService(IStatusCheckRepository statusCheckRepository, IHistoricalStatusDataRepository historicalStatusDataRepository, IHistoricalStatusActionRepository historicalStatusActionRepository, ILogger<StatusCheckService> logger) : IStatusCheckService
     {
-        public async Task<IPagedResult<StatusCheck>> GetStatusCheckSet(int page = 1, int pageSize = 0)
+        public async Task<IPagedResult<StatusCheck>> GetStatusCheckSet(int page = 1, int pageSize = 0, bool onlyEnabled = true)
         {
-            return await statusCheckRepository.GetStatusCheckSet(page, pageSize);
+            return await statusCheckRepository.GetStatusCheckSet(page, pageSize, onlyEnabled);
         }
         public async Task<StatusCheck?> GetStatusCheck(long StatusCheckId)
         {
             return await statusCheckRepository.GetStatusCheckById(StatusCheckId);
         }
-        public async Task<IPagedResult<StatusCheckViewModel>> GetStatusCheckViewModelSet(int page = 1, int pageSize = 0)
+        public async Task<IPagedResult<StatusCheckViewModel>> GetStatusCheckViewModelSet(int page = 1, int pageSize = 0, bool onlyEnabled = true)
         {
-            IPagedResult<StatusCheck> statusCheckSet = await GetStatusCheckSet(page, pageSize);
+            IPagedResult<StatusCheck> statusCheckSet = await GetStatusCheckSet(page, pageSize, onlyEnabled);
             return await statusCheckSet.MapToAsync(async x => new StatusCheckViewModel(x, await GetMostRecentHistoricalStatusData(x.Id)));
         }
         public async Task<HistoricalStatusDataViewModel?> GetMostRecentHistoricalStatusData(long statusCheckId)

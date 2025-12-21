@@ -3,6 +3,7 @@ using SuperStatus.Data.Entities;
 using SuperStatus.Data.Repositories;
 using SuperStatus.Data.ViewModels;
 using SuperStatus.Services.Services;
+using System.Security.Claims;
 
 namespace SuperStatus.ApiService.Endpoints;
 
@@ -10,15 +11,32 @@ public static class StatusEndpoints
 {
     public static void MapStatusEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/statuscheck", async (IStatusCheckService statusCheckService) =>
+        app.MapGet("/statuscheck", async (ClaimsPrincipal user, IStatusCheckService statusCheckService, ILoggerFactory loggerFactory) =>
         {
-            IPagedResult<StatusCheckViewModel> statusCheck = await statusCheckService.GetStatusCheckViewModelSet();
-            if (statusCheck.RowCount == 0)
+            var logger = loggerFactory.CreateLogger("StatusEndpoints");
+            var isAuthenticated = user.Identity?.IsAuthenticated ?? false;
+            
+            if (isAuthenticated)
             {
-                return Results.NotFound("No status checks found.");
+                // User is authenticated - you can access claims here
+                var userId = user.FindFirst("sub")?.Value; // Subject claim (user ID)
+                var name = user.Identity?.Name;
+                logger.LogInformation("Authenticated user '{Name}' (ID: {UserId}) accessed /statuscheck", name, userId);
             }
+            else  
+            {
+                logger.LogInformation("Anonymous user accessed /statuscheck");
+            }
+
+            IPagedResult<StatusCheckViewModel> statusCheck = await statusCheckService.GetStatusCheckViewModelSet(onlyEnabled: true);
             return Results.Ok(statusCheck);
         });
+
+        app.MapGet("/statuscheck/admin", async (ClaimsPrincipal user, IStatusCheckService statusCheckService) =>
+        {
+            IPagedResult<StatusCheckViewModel> statusCheck = await statusCheckService.GetStatusCheckViewModelSet(onlyEnabled: false);
+            return Results.Ok(statusCheck);
+        }).RequireAuthorization();
 
         app.MapGet("/statuscheck/gethistoricaldata/{id}", async (int id, IStatusCheckService statusCheckService, IConfigurationRepository configurationRepository) =>
         {

@@ -1,8 +1,7 @@
 ﻿@using Humanizer
 @using Microsoft.AspNetCore.Components.Authorization
-@using SuperStatus.Data.Constants
 
-@inject StatusApiClient StatusApi
+@inject IncidentApiClient IncidentApi
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
 
@@ -11,123 +10,54 @@
         <MudForm @ref="_form" @bind-IsValid="@_isValid">
             <MudGrid>
                 <MudItem xs="12">
-                    <MudText Typo="Typo.h6" Class="mb-4">Basic Information</MudText>
+                    <MudText Typo="Typo.h6" Class="mb-4">Incident Information</MudText>
                     <MudPaper Class="pa-4">
                         <MudGrid>
                             <MudItem xs="12">
                                 <MudTextField T="string"
-                                              @bind-Value="StatusCheck.Title"
+                                              @bind-Value="Incident.Title"
                                               Label="Title"
-                                              For="@(()=>StatusCheck.Title)"
+                                              For="@(()=>Incident.Title)"
                                               Required="true"
                                               RequiredError="Title is required."
                                               Variant="Variant.Outlined" />
                             </MudItem>
                             <MudItem xs="12">
                                 <MudTextField T="string"
-                                              @bind-Value="StatusCheck.Description"
+                                              @bind-Value="Incident.Description"
                                               Label="Description"
-                                              For="@(()=>StatusCheck.Description)"
-                                              Lines="3"
-                                              Placeholder="Optional description"
+                                              For="@(()=>Incident.Description)"
+                                              Lines="5"
+                                              Placeholder="Describe the incident"
                                               Variant="Variant.Outlined" />
                             </MudItem>
                             <MudItem xs="12" md="6">
-                                <MudTextField T="string"
-                                              @bind-Value="StatusCheck.StatusCheckUrl"
-                                              Label="Status Check URL"
-                                              For="@(()=>StatusCheck.StatusCheckUrl)"
-                                              Required="true"
-                                              RequiredError="Status URL is required."
-                                              InputType="InputType.Url"
-                                              Placeholder="https://service/health"
-                                              Variant="Variant.Outlined" />
+                                <MudSwitch @bind-Value="Incident.Resolved" 
+                                           Color="Color.Success" 
+                                           Label="Resolved" />
                             </MudItem>
                             <MudItem xs="12" md="6">
-                                <MudTextField T="string"
-                                              @bind-Value="StatusCheck.ServiceLogoUrl"
-                                              Label="Service Logo URL"
-                                              For="@(()=>StatusCheck.ServiceLogoUrl)"
-                                              InputType="InputType.Url"
-                                              Placeholder="https://cdn.example.com/logo.png"
-                                              Variant="Variant.Outlined" />
-                            </MudItem>
-                            <MudItem xs="12" md="6">
-                                <MudSwitch @bind-Value="StatusCheck.Enabled" 
+                                <MudSwitch @bind-Value="Incident.VisibleToPublic" 
                                            Color="Color.Primary" 
-                                           Label="Enabled" />
+                                           Label="Visible to Public" />
                             </MudItem>
-                        </MudGrid>
-                    </MudPaper>
-                </MudItem>
-
-                <MudItem xs="12">
-                    <MudText Typo="Typo.h6" Class="mb-4">Success Response Criteria</MudText>
-                    <MudPaper Class="pa-4">
-                        <MudGrid>
-                            <MudItem xs="12" md="6">
-                                <MudSelect T="int"
-                                           @bind-Value="StatusCheck.ExpectedStatusCode"
-                                           Label="Expected Status Code"
-                                           For="@(()=>StatusCheck.ExpectedStatusCode)"
-                                           Required="true"
-                                           RequiredError="Expected HTTP status code is required."
-                                           Variant="Variant.Outlined">
-                                    @foreach (var statusCode in CommonSuccessStatusCodes)
-                                    {
-                                        <MudSelectItem T="int" Value="statusCode.Code">@statusCode.Code - @statusCode.Description</MudSelectItem>
-                                    }
-                                </MudSelect>
-                            </MudItem>
-                            <MudItem xs="12" md="6">
-                                <MudNumericField T="long"
-                                                 @bind-Value="StatusCheck.ExpectedResponseTimeInMs"
-                                                 Label="Expected Response Time (ms)"
-                                                 For="@(()=>StatusCheck.ExpectedResponseTimeInMs)"
-                                                 Min="0"
-                                                 Adornment="Adornment.End"
-                                                 AdornmentIcon="@Icons.Material.Filled.Speed"
-                                                 HelperText="Max acceptable response time."
-                                                 Variant="Variant.Outlined" />
-                            </MudItem>
-                        </MudGrid>
-                    </MudPaper>
-                </MudItem>
-
-                <MudItem xs="12">
-                    <MudText Typo="Typo.h6" Class="mb-4">Webhook Configuration</MudText>
-                    <MudPaper Class="pa-4">
-                        <MudGrid>
-                            <MudItem xs="12">
-                                <MudSwitch @bind-Value="StatusCheck.IsWebHookOnErrorEnabled" 
-                                           Color="Color.Primary" 
-                                           Label="Enable Webhook On Error"
-                                           Immediate="true"
-                                           T="bool"
-                                           ValueChanged="OnWebhookToggle" />
-                            </MudItem>
-                            <MudItem xs="12" md="8">
-                                <MudTextField T="string"
-                                              @bind-Value="StatusCheck.WebHookOnErrorUrl"
-                                              Label="Webhook URL"
-                                              For="@(()=>StatusCheck.WebHookOnErrorUrl)"
-                                              InputType="InputType.Url"
-                                              Required="@StatusCheck.IsWebHookOnErrorEnabled"
-                                              RequiredError="Webhook URL required when enabled."
-                                              Placeholder="https://hooks.example.com/error"
-                                              Disabled="@(!StatusCheck.IsWebHookOnErrorEnabled)"
-                                              Variant="Variant.Outlined" />
-                            </MudItem>
-                            <MudItem xs="12" md="4">
-                                <MudNumericField T="int"
-                                                 @bind-Value="StatusCheck.ThrottleWebHookToExecuteOnlyEveryXMinutes"
-                                                 Label="Webhook Throttle (min)"
-                                                 For="@(()=>StatusCheck.ThrottleWebHookToExecuteOnlyEveryXMinutes)"
-                                                 Min="0"
-                                                 HelperText="0 = trigger every failure."
-                                                 Disabled="@(!StatusCheck.IsWebHookOnErrorEnabled)"
-                                                 Variant="Variant.Outlined" />
-                            </MudItem>
+                            @if (Incident.Id > 0)
+                            {
+                                <MudItem xs="12" md="6">
+                                    <MudTextField T="string"
+                                                  Value="@Incident.Created.ToString("g")"
+                                                  Label="Created"
+                                                  ReadOnly="true"
+                                                  Variant="Variant.Outlined" /> 
+                                </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <MudTextField T="string"
+                                                  Value="@(Incident.AutomaticallyGeneratedReport ? "Yes" : "No")"
+                                                  Label="Auto-Generated"
+                                                  ReadOnly="true"
+                                                  Variant="Variant.Outlined" />
+                                </MudItem>
+                            }
                         </MudGrid>
                     </MudPaper>
                 </MudItem>
@@ -161,21 +91,11 @@
 @code {
 
     [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
-    [Parameter] public required StatusCheckViewModelBase StatusCheck { get; set; }
+    [Parameter] public required IncidentViewModel Incident { get; set; }
 
     private MudForm? _form;
     private bool _isValid;
     private bool _submitting;
-
-    // Common 2xx success status codes
-    private readonly (int Code, string Description)[] CommonSuccessStatusCodes =
-    [
-        (200, "OK"),
-        (201, "Created"),
-        (202, "Accepted"),
-        (204, "No Content"),
-        (206, "Partial Content")
-    ];
 
     private async Task SubmitAsync()
     {
@@ -187,13 +107,13 @@
         _submitting = true;
         try
         {
-            await StatusApi.UpdateOrAddStatusCheck(StatusCheck);
-            Snackbar.Add("Status check saved successfully!", Severity.Success);
-            MudDialog.Close(DialogResult.Ok(StatusCheck));
+            await IncidentApi.UpdateOrAddIncident(Incident);
+            Snackbar.Add("Incident saved successfully!", Severity.Success);
+            MudDialog.Close(DialogResult.Ok(Incident));
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Error saving status check: {ex.Message}", Severity.Error);
+            Snackbar.Add($"Error saving incident: {ex.Message}", Severity.Error);
         }
         finally
         {
@@ -202,22 +122,4 @@
     }
 
     private void Cancel() => MudDialog.Cancel();
-
-    private async Task OnWebhookToggle(bool enabled)
-    {
-        StatusCheck.IsWebHookOnErrorEnabled = enabled;
-        
-        // Clear webhook fields if disabled
-        if (!enabled)
-        {
-            StatusCheck.WebHookOnErrorUrl = string.Empty;
-            StatusCheck.ThrottleWebHookToExecuteOnlyEveryXMinutes = 0;
-        }
-        
-        // Revalidate dependent fields when webhook enabled/disabled
-        if (_form is not null)
-            await _form.Validate();
-        
-        StateHasChanged();
-    }
 }

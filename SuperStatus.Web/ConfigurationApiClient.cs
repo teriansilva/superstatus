@@ -4,22 +4,27 @@ using System.Net.Http.Headers;
 
 namespace SuperStatus.Web;
 
-public class ConfigurationApiClient(HttpClient httpClient, IHttpContextAccessor accessor)
+public class ConfigurationApiClient
 {
+    private readonly HttpClient _anon;
+    private readonly HttpClient _auth;
+
+    public ConfigurationApiClient(IHttpClientFactory factory, IHttpContextAccessor accessor)
+    {
+        _anon = factory.CreateClient("apiservice-anon");
+        _auth = factory.CreateClient("apiservice-auth");
+    }
+
     public async Task<Configuration?> GetConfigurationAsync(CancellationToken cancellationToken = default)
     {
-        var accessToken = await accessor.HttpContext?.GetTokenAsync("access_token");
-        httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-
-        return await httpClient.GetFromJsonAsync<Configuration>("/admin/configuration", cancellationToken);
+        // Use anonymous client - this endpoint is now public
+        return await _anon.GetFromJsonAsync<Configuration>("/configuration", cancellationToken);
     }
 
     public async Task UpdateConfigurationAsync(Configuration configuration, CancellationToken cancellationToken = default)
     {
-        var accessToken = await accessor.HttpContext?.GetTokenAsync("access_token");
-        httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-
-        using var response = await httpClient.PostAsJsonAsync("/admin/configuration", configuration, cancellationToken);
+        // Use authenticated client - this endpoint requires authorization
+        using var response = await _auth.PostAsJsonAsync("/admin/configuration", configuration, cancellationToken);
 
         if (!response.IsSuccessStatusCode)
         {

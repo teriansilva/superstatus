@@ -1,0 +1,127 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@inject GridApiClient GridApi
+@inject NavigationManager Nav
+@inject IDialogService DialogService
+@using SuperStatus.Data.ViewModels
+@using SuperStatus.Web.Components.Grid
+
+<div class="grid-canvas-shell" @ref="_shellRef">
+    <canvas @ref="_canvasRef" class="grid-canvas" tabindex="0"></canvas>
+
+    @* Skeleton overlay shown until first paint; renderer hides it via canvas. *@
+    @if (!_initialized)
+    {
+        <div class="grid-bootstrapping">
+            <span class="grid-bootstrapping-text">BOOTING NIGHT CITY&hellip;</span>
+        </div>
+    }
+
+    <div class="grid-toolbar">
+        <button class="grid-toolbar-btn" @onclick="ListView" title="Back to list view">LIST</button>
+        <span class="grid-toolbar-divider"></span>
+        <button class="grid-toolbar-btn" @onclick="ZoomOut" title="Zoom out">&minus;</button>
+        <button class="grid-toolbar-btn" @onclick="ZoomIn" title="Zoom in">+</button>
+    </div>
+</div>
+
+@code {
+    private ElementReference _shellRef;
+    private ElementReference _canvasRef;
+    private DotNetObjectReference<GridCanvas>? _selfRef;
+    private PeriodicTimer? _pollTimer;
+    private CancellationTokenSource? _pollCts;
+    private bool _initialized;
+    // Last fetched buildings list, kept on the Blazor side so OnBuildingClicked
+    // can resolve an id to the full VM and hand it to the modal. The JS layer
+    // also holds its own positioned-and-rendered copy (issue #11 invariant 1).
+    private List<GridBuildingViewModel> _buildings = new();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        _selfRef = DotNetObjectReference.Create(this);
+
+        // Renderer is a single global on window (window.SuperStatusGrid) so
+        // it does not require ES-module loading and survives re-renders.
+        await JS.InvokeVoidAsync(
+            "SuperStatusGrid.init",
+            _canvasRef,
+            _selfRef);
+
+        _initialized = true;
+        StateHasChanged();
+
+        // Initial load + polling.
+        await LoadAndPushAsync();
+        _ = PollAsync();
+    }
+
+    private async Task LoadAndPushAsync()
+    {
+        try
+        {
+            List<GridBuildingViewModel> buildings = await GridApi.GetBuildingsAsync();
+            _buildings = buildings;
+            await JS.InvokeVoidAsync("SuperStatusGrid.setBuildings", buildings);
+        }
+        catch
+        {
+            // Swallow; the renderer will continue showing whatever it has.
+            // Better UX in A.3+ will surface this with a faint sign.
+        }
+    }
+
+    private async Task PollAsync()
+    {
+        _pollCts = new CancellationTokenSource();
+        _pollTimer = new PeriodicTimer(TimeSpan.FromSeconds(15));
+        try
+        {
+            while (await _pollTimer.WaitForNextTickAsync(_pollCts.Token))
+            {
+                await LoadAndPushAsync();
+            }
+        }
+        catch (OperationCanceledException) { /* expected on dispose */ }
+    }
+
+    private void ListView() => Nav.NavigateTo("/");
+
+    private async Task ZoomIn()  => await JS.InvokeVoidAsync("SuperStatusGrid.zoomIn");
+    private async Task ZoomOut() => await JS.InvokeVoidAsync("SuperStatusGrid.zoomOut");
+
+    [JSInvokable]
+    public async Task OnBuildingClicked(long buildingId)
+    {
+        GridBuildingViewModel? building = _buildings.FirstOrDefault(b => b.Id == buildingId);
+        if (building is null) return;
+
+        var parameters = new DialogParameters<GridDetailModal>
+        {
+            { x => x.Building, building },
+        };
+        var options = new DialogOptions
+        {
+            CloseOnEscapeKey = true,
+            CloseButton = false,            // we provide our own neon CLOSE
+            MaxWidth = MaxWidth.Small,
+            FullWidth = true,
+            BackgroundClass = "grid-modal-backdrop",
+        };
+        await DialogService.ShowAsync<GridDetailModal>(building.Title, parameters, options);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _pollCts?.Cancel();
+        _pollTimer?.Dispose();
+        try
+        {
+            await JS.InvokeVoidAsync("SuperStatusGrid.destroy");
+        }
+        catch { /* page navigated away; ignore */ }
+        _selfRef?.Dispose();
+    }
+}

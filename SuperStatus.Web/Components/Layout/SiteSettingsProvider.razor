@@ -1,0 +1,58 @@
+@*
+    SiteSettingsProvider — issue #167 Phase 2.
+
+    Loads the operator-editable branding (title / logo / accent) from the
+    /settings API once per render and cascades it to the shell (HeaderBar reads
+    the title + logo). It also applies the chosen accent by overriding the HUD
+    theme custom properties (--accent / --accent-soft / --accent-glow) on :root,
+    so the recolor reaches the whole tree — including FooterBar, which sits
+    outside the .app grid.
+
+    The accent is re-emitted only when it is a valid #rrggbb (the API already
+    normalizes it to that or the default); an invalid/empty value emits nothing
+    and the theme defaults from hud-theme.css apply. Because the value is
+    constrained to hex characters, interpolating it into the <style> block
+    cannot break out of the CSS context. Load failures degrade to defaults — the
+    shell must never crash the circuit over branding.
+*@
+@using System.Text.RegularExpressions
+@using SuperStatus.Data.ViewModels
+@inject SettingsApiClient SettingsApi
+
+@if (_accentCss is not null)
+{
+    <style>@_accentCss</style>
+}
+
+<CascadingValue Value="_settings" Name="SiteSettings">
+    @ChildContent
+</CascadingValue>
+
+@code {
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private static readonly Regex HexColor = new("^#[0-9a-fA-F]{6}$", RegexOptions.Compiled);
+
+    private SiteSettingsViewModel _settings = new();
+    private string? _accentCss;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _settings = await SettingsApi.GetSettingsAsync();
+        _accentCss = BuildAccentCss(_settings.AccentColor);
+    }
+
+    /// <summary>Override --accent and its soft/glow rgba derivations on :root.
+    /// Returns null for a non-#rrggbb value so the theme default stands.</summary>
+    private static string? BuildAccentCss(string? accent)
+    {
+        accent = (accent ?? string.Empty).Trim();
+        if (!HexColor.IsMatch(accent)) return null;
+
+        int r = Convert.ToInt32(accent.Substring(1, 2), 16);
+        int g = Convert.ToInt32(accent.Substring(3, 2), 16);
+        int b = Convert.ToInt32(accent.Substring(5, 2), 16);
+
+        return $":root{{--accent:{accent};--accent-soft:rgba({r},{g},{b},0.55);--accent-glow:rgba({r},{g},{b},0.20);}}";
+    }
+}

@@ -1,0 +1,156 @@
+name: superstatus
+
+# Self-host / local-trial stack for SuperStatus.
+#
+# This is the file a self-hoster runs. It builds the three services from source
+# and runs the whole status page on plain HTTP over localhost — no domain, no
+# TLS, no reverse proxy, and no edits required:
+#
+#   cp .env.example .env      # optional — the defaults below already work
+#   docker compose up         # build + start; first build takes a few minutes
+#   open http://localhost:8080
+#
+# The org-internal staging/production deploys use docker-compose.staging.yml /
+# docker-compose.prod.yml instead; those assume an external TLS reverse proxy.
+#
+# ── How single-host OIDC works here ───────────────────────────────────────────
+# Web and Identity speak OIDC, which needs the OIDC authority reachable by BOTH
+# the browser (login redirects) and the web/api containers (back-channel
+# discovery / token / JWKS). No single hostname satisfies both on a plain
+# localhost host: the browser needs *.localhost (auto-resolves to 127.0.0.1),
+# but glibc inside the containers pins *.localhost to loopback, so the containers
+# can't use it to reach Identity.
+#
+# SuperStatus resolves this with two URLs that point at the same logical issuer:
+#
+#   • IDP_PUBLIC_HTTP = http://id.localhost:8081   (browser → published port;
+#                       Identity pins this as its issuer so tokens/endpoints are
+#                       stable and browser-reachable)
+#   • IDP_HTTP        = http://identity:8080        (web/api back-channel over the
+#                       compose network; they rewrite their own outbound calls
+#                       from the public host to this internal one)
+#
+# So the browser is sent to id.localhost:8081 while the servers talk to
+# identity:8080 — one consistent issuer, no reverse proxy. If your browser does
+# not auto-resolve *.localhost (older Safari), add to your hosts file:
+#   127.0.0.1   id.localhost
+
+x-aspnet-env: &aspnet-env
+  ASPNETCORE_ENVIRONMENT: Production
+  ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
+
+x-healthcheck: &http-health
+  test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+  interval: 10s
+  timeout: 5s
+  retries: 18
+  start_period: 90s
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    # The API runs a periodic status-check job plus the /statuscheck/grid
+    # endpoint; together with the Identity pool the 100-connection default got
+    # exhausted under load. 200 gives headroom within default shared_buffers.
+    command: ["postgres", "-c", "max_connections=200"]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-superstatus}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-superstatus_local_dev}
+      POSTGRES_DB: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [internal]
+
+  identity:
+    build:
+      context: .
+      dockerfile: SuperStatus.Identity/Dockerfile
+    restart: unless-stopped
+    environment:
+      <<: *aspnet-env
+      ConnectionStrings__SuperStatusIdentityDb: "Host=postgres;Database=SuperStatusIdentityDb;Username=${POSTGRES_USER:-superstatus};Password=${POSTGRES_PASSWORD:-superstatus_local_dev};Maximum Pool Size=20;Connection Idle Lifetime=30"
+      # Identity seeds the OIDC client's redirect URIs from WEBAPP_HTTP — must be
+      # the URL the browser uses to reach Web.
+      WEBAPP_HTTP: ${WEBAPP_HTTP:-http://localhost:8080}
+      # Pin the public issuer so discovery/endpoints/tokens advertise the
+      # browser-reachable URL regardless of which host a request arrives on.
+      IDP_PUBLIC_HTTP: ${IDP_PUBLIC_HTTP:-http://id.localhost:8081}
+      OIDC_WEB_CLIENT_SECRET: ${OIDC_WEB_CLIENT_SECRET:-superstatus_local_dev_oidc}
+      APPLY_MIGRATIONS: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck: *http-health
+    ports:
+      # Published so the browser can reach the OIDC authority at
+      # http://id.localhost:${IDENTITY_PORT}. Keep this port in sync with the
+      # :PORT in IDP_PUBLIC_HTTP above. Bound to loopback by default. To serve a
+      # trusted LAN, set BIND_ADDR=0.0.0.0 (start.sh does this) — plain HTTP is OK
+      # on a network you control. On an untrusted network/internet, only expose it
+      # via a TLS reverse proxy (BIND_ADDR = the proxy's interface).
+      # See docs/self-hosting.md.
+      - "${BIND_ADDR:-127.0.0.1}:${IDENTITY_PORT:-8081}:8080"
+    networks: [internal]
+
+  api:
+    build:
+      context: .
+      dockerfile: SuperStatus.ApiService/Dockerfile
+    restart: unless-stopped
+    environment:
+      <<: *aspnet-env
+      ConnectionStrings__SuperStatusDb: "Host=postgres;Database=SuperStatusDb;Username=${POSTGRES_USER:-superstatus};Password=${POSTGRES_PASSWORD:-superstatus_local_dev};Maximum Pool Size=20;Connection Idle Lifetime=30"
+      # Internal back-channel authority (compose DNS) + the public issuer tokens
+      # carry. The API rewrites its own metadata/JWKS calls to the internal host.
+      IDP_HTTP: ${IDP_HTTP:-http://identity:8080}
+      IDP_PUBLIC_HTTP: ${IDP_PUBLIC_HTTP:-http://id.localhost:8081}
+      APPLY_MIGRATIONS: "true"
+      # Populate the /grid view with a sample city on first run (no-op once the
+      # status-check table is non-empty). Set to "false" to start empty.
+      SEED_SAMPLE_DATA: ${SEED_SAMPLE_DATA:-true}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      identity:
+        condition: service_healthy
+    healthcheck: *http-health
+    networks: [internal]
+
+  web:
+    build:
+      context: .
+      dockerfile: SuperStatus.Web/Dockerfile
+    restart: unless-stopped
+    environment:
+      <<: *aspnet-env
+      # Internal back-channel authority + public browser-facing issuer.
+      IDP_HTTP: ${IDP_HTTP:-http://identity:8080}
+      IDP_PUBLIC_HTTP: ${IDP_PUBLIC_HTTP:-http://id.localhost:8081}
+      OIDC_WEB_CLIENT_SECRET: ${OIDC_WEB_CLIENT_SECRET:-superstatus_local_dev_oidc}
+      # Aspire-style service discovery: how Web reaches the API on the compose
+      # network.
+      services__apiservice__http__0: "http://api:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+      identity:
+        condition: service_healthy
+    healthcheck: *http-health
+    ports:
+      # Loopback-only by default (see the identity service above).
+      - "${BIND_ADDR:-127.0.0.1}:${WEB_PORT:-8080}:8080"
+    networks: [internal]
+
+volumes:
+  pgdata:
+
+networks:
+  internal:
+    driver: bridge

@@ -1,0 +1,156 @@
+/* Landing-page layout (#196). Tokens + primitives (.panel/.cnr/.tag/.btn/
+   .telemetry-strip/.callsign) come from the shared hud-theme.css; this file
+   only arranges them into marketing sections. */
+
+.lp-main { display: flex; flex-direction: column; gap: var(--s-8); padding-block: var(--s-7); }
+
+/* hud-theme.css adds `.panel + .panel { margin-top: var(--s-4) }` for vertically
+   stacked dashboard panels. On the landing, spacing is owned by the flex/grid
+   gaps, so neutralize it — otherwise the 2nd/3rd card in each grid row inherits
+   a top margin and its top edge drops out of line with the first card. */
+.lp-main .panel + .panel { margin-top: 0; }
+
+.topbar { flex-wrap: nowrap; }
+.topbar .lp-actions { margin-left: auto; display: flex; gap: var(--s-3); align-items: center; flex: 0 0 auto; }
+.topbar .brand { text-decoration: none; }
+.topbar .brand .name { white-space: nowrap; }
+/* Topbar CTAs never wrap to a second line. */
+.topbar .lp-actions .btn { white-space: nowrap; }
+
+/* Hero */
+.lp-hero { padding: var(--s-7); }
+.lp-hero h1 {
+  font-family: var(--font-mono); font-weight: 700; letter-spacing: 0.01em;
+  font-size: 40px; line-height: 1.12; margin: var(--s-3) 0 var(--s-4);
+  color: var(--text-1);
+}
+.lp-hero h1 em { font-style: normal; color: var(--accent); }
+.lp-hero .lede { color: var(--text-2); font-size: 15px; max-width: 60ch; margin: 0 0 var(--s-5); }
+.lp-cta-row { display: flex; gap: var(--s-3); flex-wrap: wrap; }
+.lp-hero .btn, .lp-cta-row .btn { padding: var(--s-3) var(--s-5); font-size: 12px; }
+
+/* Section heading spacing */
+.lp-sec > .callsign { margin-bottom: var(--s-4); }
+
+/* Preview frame */
+.lp-preview { padding: var(--s-5); }
+.lp-preview-stage {
+  display: block; border: 1px solid var(--line); background: var(--bg-0);
+  margin-top: var(--s-3); overflow: hidden;
+}
+.lp-preview-stage img { display: block; width: 100%; height: auto; }
+.lp-preview-stage:hover { border-color: var(--accent-soft); }
+.lp-preview-cap {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: var(--s-3); font-size: 11px; color: var(--text-3);
+  text-transform: uppercase; letter-spacing: 0.14em; flex-wrap: wrap; gap: var(--s-2);
+}
+
+/* Feature grid */
+.lp-feature-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s-4); }
+.lp-feature { padding: var(--s-5); }
+.lp-feature h3 {
+  font-size: 14px; color: var(--text-1); font-weight: 600; letter-spacing: 0.04em;
+  margin: var(--s-3) 0 var(--s-2); text-transform: uppercase;
+}
+.lp-feature p { color: var(--text-2); font-size: 12px; margin: 0; }
+
+/* Deployment split */
+.lp-deploy-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-4); }
+.lp-deploy { padding: var(--s-5); }
+.lp-deploy h3 { font-size: 16px; color: var(--text-1); margin: var(--s-2) 0 var(--s-3); letter-spacing: 0.04em; }
+.lp-deploy ul { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: var(--s-2); }
+.lp-deploy li { color: var(--text-2); font-size: 12px; display: flex; gap: var(--s-3); }
+.lp-deploy li::before { content: "//"; color: var(--accent); }
+
+/* Pricing — equal-height cards on a shared baseline; the CTA pins to the
+   bottom of each card so all three buttons line up regardless of list length. */
+.lp-pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--s-5);
+  align-items: stretch;       /* equal heights */
+  padding-top: var(--s-3);    /* clearance for the featured ribbon */
+}
+.lp-price {
+  position: relative;
+  padding: var(--s-6) var(--s-5) var(--s-5);
+  display: flex; flex-direction: column; gap: var(--s-3);
+}
+.lp-tier { font-size: 11px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.18em; }
+.lp-amount { font-size: 36px; color: var(--text-1); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
+.lp-amount small { font-size: 13px; color: var(--text-3); font-weight: 400; letter-spacing: 0.04em; }
+/* Hairline rule separates the price header from the feature list. */
+.lp-price ul {
+  list-style: none; margin: var(--s-1) 0 0; padding: var(--s-4) 0 0;
+  border-top: 1px dashed var(--line);
+  display: flex; flex-direction: column; gap: var(--s-2);
+}
+.lp-price li { color: var(--text-2); font-size: 12px; display: flex; gap: var(--s-3); }
+.lp-price li::before { content: "+"; color: var(--accent); }
+.lp-price .btn { justify-content: center; margin-top: auto; }
+
+/* Featured lane — highlights the upcoming SuperStatus Cloud (hosted) tier,
+   shown as "coming soon" rather than a buy-now recommendation. */
+.lp-price-featured {
+  background: var(--accent-glow);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-soft), 0 10px 44px rgba(63, 191, 111, 0.18);
+}
+.lp-price-featured .cnr { border-color: var(--accent); }
+.lp-price-featured ul { border-top-color: var(--accent-soft); }
+/* Solid accent ribbon straddling the top border — keeps the price/feature rows
+   aligned across all three cards (it's out of flow), unlike an inline tag. */
+.lp-ribbon {
+  position: absolute; top: 0; left: 50%;
+  transform: translate(-50%, -50%);
+  display: inline-flex; align-items: center; gap: var(--s-2);
+  background: var(--accent); color: var(--bg-0);
+  font-size: 10px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase;
+  padding: 5px 14px; white-space: nowrap;
+  box-shadow: 0 0 18px var(--accent-glow); z-index: 3;
+}
+.lp-ribbon .led { background: var(--bg-0); box-shadow: none; animation: none; }
+/* "Coming soon" variant: SuperStatus Cloud (hosted) is not live yet, so the
+   ribbon reads as upcoming rather than the accent-green "recommended". */
+.lp-ribbon.soon { background: var(--text-2); box-shadow: none; }
+.lp-ribbon.soon .led { background: var(--bg-0); }
+/* Small muted inline "· coming soon" qualifier next to a heading / tier label. */
+.lp-soon {
+  font-size: 0.62em; font-weight: 600; letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--text-3); white-space: nowrap;
+}
+
+/* Footer */
+.lp-foot {
+  grid-area: footer; background: var(--bg-1); border-top: 1px solid var(--line);
+  padding: var(--s-5) var(--s-7); display: flex; align-items: center; gap: var(--s-4);
+  flex-wrap: wrap; font-size: 11px; color: var(--text-3);
+  text-transform: uppercase; letter-spacing: 0.14em;
+}
+.lp-foot .brand { font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; display: inline-flex; align-items: center; gap: var(--s-3); color: var(--text-1); }
+.lp-foot .brand em { font-style: normal; color: var(--accent); }
+.lp-foot a { color: var(--text-2); }
+/* "Created with ♥ by superstatus.io" backlink — heart in the brand accent. */
+.lp-foot-credit { color: var(--text-3); }
+.lp-foot-credit a { color: var(--accent); }
+.lp-foot-credit a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.lp-heart { color: var(--accent); font-style: normal; }
+.lp-foot-spacer { margin-left: auto; }
+
+@media (max-width: 900px) {
+  .lp-feature-grid { grid-template-columns: repeat(2, 1fr); }
+  .lp-pricing-grid { grid-template-columns: 1fr; }
+  .lp-deploy-grid { grid-template-columns: 1fr; }
+  /* Slim the topbar: drop the descriptive status-page chip so the bar stays a
+     single clean line (brand + CTAs) instead of cramming/wrapping. */
+  .topbar .tag { display: none; }
+}
+@media (max-width: 600px) {
+  .lp-hero { padding: var(--s-5); }
+  .lp-hero h1 { font-size: 28px; }
+  .lp-feature-grid { grid-template-columns: 1fr; }
+  /* Mobile topbar = brand + Live demo only, on one line. */
+  .topbar { padding: 0 var(--s-4); gap: var(--s-3); }
+  .topbar .lp-actions .btn:not(.primary) { display: none; }
+}

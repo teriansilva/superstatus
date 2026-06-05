@@ -1,0 +1,216 @@
+@using Microsoft.AspNetCore.Components.Authorization
+@using SuperStatus.Data.ViewModels
+@inject StatusApiClient StatusApi
+@inject NavigationManager Nav
+
+@*
+    Frosted-glass cyberpunk modal opened from the Grid view (issue #11 §9.4).
+    Lives inside MudDialog; styling lives in wwwroot/grid/grid.css under
+    .grid-detail-* selectors so the look survives MudBlazor minor updates.
+
+    Data flow: the parent (GridCanvas) hands us a populated GridBuildingViewModel.
+    We fetch 30-day history on the side via StatusApiClient — same endpoint the
+    list view uses, so no new backend round-trip shape.
+*@
+
+<MudDialog Class="grid-detail-modal">
+    <TitleContent>
+        <div class="grid-detail-title-row">
+            <span class="grid-detail-title">@Building.Title</span>
+            <span class="grid-detail-status @StatusPillClass">@StatusPillText</span>
+        </div>
+        <div class="grid-detail-subtitle">
+            <span class="grid-detail-tag">TIER @Tier</span>
+            <span class="grid-detail-tag">@Building.AgeDays.ToString("0") D</span>
+            <span class="grid-detail-tag">@($"{Building.Uptime30d:P1}")</span>
+        </div>
+    </TitleContent>
+
+    <DialogContent>
+        <div class="grid-detail-section-label">30-DAY UPTIME</div>
+        <div class="grid-detail-sparkline" aria-label="@AriaSparkline">
+            @for (int i = 29; i >= 0; i--)
+            {
+                <span class="grid-detail-spark-cell @SparkClassFor(i)" title="@SparkTitleFor(i)"></span>
+            }
+        </div>
+
+        <div class="grid-detail-uptime-row">
+            <span class="grid-detail-uptime-pair">
+                <span class="grid-detail-uptime-label">30D</span>
+                <span class="grid-detail-uptime-value">@($"{Building.Uptime30d:P2}")</span>
+            </span>
+            <span class="grid-detail-uptime-pair">
+                <span class="grid-detail-uptime-label">7D</span>
+                <span class="grid-detail-uptime-value">@($"{Building.Uptime7d:P2}")</span>
+            </span>
+            <span class="grid-detail-uptime-pair">
+                <span class="grid-detail-uptime-label">LAST</span>
+                <span class="grid-detail-uptime-value">@LastCheckText</span>
+            </span>
+        </div>
+
+        @if (RecentFailures is { Count: > 0 })
+        {
+            <div class="grid-detail-section-label">RECENT FAILURES</div>
+            <ul class="grid-detail-failures">
+                @foreach (var f in RecentFailures)
+                {
+                    <li>
+                        <span class="grid-detail-failure-date">@f.Date.ToString("MMM dd")</span>
+                        <span class="grid-detail-failure-detail">@DescribeDay(f)</span>
+                    </li>
+                }
+            </ul>
+        }
+        else if (_history is null)
+        {
+            <div class="grid-detail-empty">LOADING&hellip;</div>
+        }
+        else
+        {
+            <div class="grid-detail-empty">NO RECENT FAILURES</div>
+        }
+    </DialogContent>
+
+    <DialogActions>
+        <button class="grid-detail-btn" type="button" @onclick="Close" autofocus>CLOSE</button>
+        <button class="grid-detail-btn" type="button" @onclick="OpenInList">LIST VIEW</button>
+        <AuthorizeView>
+            <Authorized>
+                <button class="grid-detail-btn grid-detail-btn-primary" type="button" @onclick="GoEdit">EDIT</button>
+            </Authorized>
+        </AuthorizeView>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter, EditorRequired] public GridBuildingViewModel Building { get; set; } = default!;
+
+    private List<HistoricalStatusDataOverviewChartViewModel>? _history;
+    private List<HistoricalStatusDataOverviewChartViewModel> RecentFailures { get; set; } = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _history = await StatusApi.GetHistoricalStatusData(Building.Id);
+            RecentFailures = (_history ?? new())
+                .Where(h => h.FailedResponseCount + h.SlowResponseCount + h.UnreachableCount > 0)
+                .OrderByDescending(h => h.Date)
+                .Take(6)
+                .ToList();
+        }
+        catch
+        {
+            _history = new List<HistoricalStatusDataOverviewChartViewModel>();
+            RecentFailures = new();
+        }
+    }
+
+    private void Close()
+    {
+        MudDialog.Close(DialogResult.Ok(true));
+    }
+
+    private void OpenInList()
+    {
+        Close();
+        Nav.NavigateTo("/");
+    }
+
+    private void GoEdit()
+    {
+        // Defer to the list view's existing edit dialog. A direct edit
+        // affordance inside the Grid lands in Phase B when /grid is the
+        // canonical view; for now we route through the existing flow.
+        Close();
+        Nav.NavigateTo("/");
+    }
+
+    private int Tier => ComputeTier(Building.AgeDays, Building.Uptime30d);
+
+    private static int ComputeTier(int ageDays, double uptime30d)
+    {
+        if (ageDays < 1 || uptime30d < 0.70) return 0;
+        if (ageDays < 7 || uptime30d < 0.85) return 1;
+        if (ageDays < 30 || uptime30d < 0.95) return 2;
+        if (ageDays < 90 || uptime30d < 0.99) return 3;
+        if (uptime30d >= 0.995) return 4;
+        return 3;
+    }
+
+    private string StatusPillText => Building.CurrentFailType switch
+    {
+        2 => "OK",
+        1 => "SLOW",
+        0 => "ERR",
+        3 => "DOWN",
+        _ => "?",
+    };
+
+    private string StatusPillClass => Building.CurrentFailType switch
+    {
+        2 => "grid-pill-ok",
+        1 => "grid-pill-warn",
+        0 => "grid-pill-err",
+        3 => "grid-pill-fail",
+        _ => "grid-pill-ok",
+    };
+
+    private string LastCheckText
+    {
+        get
+        {
+            if (Building.LastCheckUtc is null) return "—";
+            var delta = DateTime.UtcNow - Building.LastCheckUtc.Value;
+            if (delta.TotalSeconds < 60) return $"{(int)delta.TotalSeconds}s";
+            if (delta.TotalMinutes < 60) return $"{(int)delta.TotalMinutes}m";
+            if (delta.TotalHours < 24) return $"{(int)delta.TotalHours}h";
+            return $"{(int)delta.TotalDays}d";
+        }
+    }
+
+    // 30-day sparkline: index 0 is today, 29 is 29 days ago.
+    // History entries are keyed by date; we look up by offset.
+    private HistoricalStatusDataOverviewChartViewModel? DayAtOffset(int daysAgo)
+    {
+        if (_history is null) return null;
+        var target = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-daysAgo);
+        foreach (var d in _history)
+        {
+            if (d.Date == target) return d;
+        }
+        return null;
+    }
+
+    private string SparkClassFor(int daysAgo)
+    {
+        var d = DayAtOffset(daysAgo);
+        if (d is null) return "grid-spark-empty";
+        if (d.UnreachableCount > 0) return "grid-spark-fail";
+        if (d.FailedResponseCount > 0) return "grid-spark-err";
+        if (d.SlowResponseCount > 0) return "grid-spark-warn";
+        return "grid-spark-ok";
+    }
+
+    private string SparkTitleFor(int daysAgo)
+    {
+        var date = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-daysAgo);
+        var d = DayAtOffset(daysAgo);
+        if (d is null) return $"{date:MMM dd} — no data";
+        return $"{date:MMM dd} — {DescribeDay(d)}";
+    }
+
+    private static string DescribeDay(HistoricalStatusDataOverviewChartViewModel d)
+    {
+        var parts = new List<string>();
+        if (d.UnreachableCount > 0)     parts.Add($"{d.UnreachableCount} unreachable");
+        if (d.FailedResponseCount > 0)  parts.Add($"{d.FailedResponseCount} bad status");
+        if (d.SlowResponseCount > 0)    parts.Add($"{d.SlowResponseCount} slow");
+        return parts.Count == 0 ? "clean" : string.Join(" / ", parts);
+    }
+
+    private string AriaSparkline => $"30 day uptime sparkline for {Building.Title}. Each block is one day.";
+}

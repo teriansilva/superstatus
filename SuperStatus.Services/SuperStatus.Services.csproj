@@ -1,0 +1,15 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SuperStatus.Configuration\SuperStatus.Configuration.csproj" />
+    <ProjectReference Include="..\SuperStatus.Data\SuperStatus.Data.csproj" />
+    <ProjectReference Include="..\SuperStatus.ServiceDefaults\SuperStatus.ServiceDefaults.csproj" />
+  </ItemGroup>
+
+</Project>

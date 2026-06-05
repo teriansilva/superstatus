@@ -1,0 +1,143 @@
+@*
+    IncidentList — tactical incident log (issue #95 Phase 3b).
+
+    Reskins the day-grouped incident list with the HUD `.incident` /
+    `.incident-day` vocabulary. Open vs resolved is the only state the
+    current Incident model carries (severity arrives with #106), so a
+    HudTag LED reads up (resolved) / degraded (open) and the resolved
+    panels dim. No data/contract change — presentation only.
+*@
+@using Humanizer
+@using SuperStatus.Configuration
+@using SuperStatus.Data.Constants
+@using SuperStatus.Data.Entities
+@using SuperStatus.Web.Components.Hud
+@inject IncidentApiClient IncidentApi
+@inject IDialogService DialogService
+
+<div class="incident-log">
+    <HudPanel ExtraClass="incident-frame">
+        @* #159 Phase 2: in Manage mode (operator console) the panel gains a
+           Report header + per-incident Edit; on the public page it stays a
+           read-only log. *@
+        @if (Manage)
+        {
+            <div class="inc-head">
+                <HudCallsign Label="INCIDENTS" Value="Manage" />
+                <button class="btn accent" @onclick="ReportAsync">+ Report incident</button>
+            </div>
+        }
+
+        @if (incidentSetByDays == null)
+        {
+            @if (!Manage)
+            {
+                <HudCallsign Label="INCIDENTS" Value="Loading…" />
+            }
+            else
+            {
+                <p class="incident-empty">Loading…</p>
+            }
+        }
+        else if (!HasAnyIncident)
+        {
+            @if (!Manage)
+            {
+                <HudCallsign Label="INCIDENTS" Value="None in the last 30 days" />
+            }
+            <p class="incident-empty">All clear. No incidents recorded in the window.</p>
+        }
+        else
+        {
+            @foreach (var day in incidentSetByDays.Keys)
+            {
+                @if (incidentSetByDays[day].Count == 0)
+                {
+                    continue;
+                }
+                <div class="incident-day">@day.ToLongDateString()</div>
+                @foreach (var incident in incidentSetByDays[day])
+                {
+                    <div class="incident @SeverityClass(incident.Severity) @(incident.Resolved ? "resolved" : "")">
+                        <div class="head">
+                            <HudTag Status="@(incident.Resolved ? "up" : "degraded")">
+                                @(incident.Resolved ? "RESOLVED" : "OPEN")
+                            </HudTag>
+                            @* Issue #106 PR2: operator severity badge. *@
+                            <HudTag Status="@SeverityLed(incident.Severity)">
+                                @incident.Severity.ToString().ToUpperInvariant()
+                            </HudTag>
+                            <span class="title">@incident.Title</span>
+                            <span class="time">@incident.Created.Humanize()</span>
+                            @if (Manage)
+                            {
+                                <span class="inc-actions">
+                                    <button class="btn" @onclick="() => EditAsync(incident)">Edit</button>
+                                </span>
+                            }
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(incident.Description))
+                        {
+                            <p>@incident.Description</p>
+                        }
+                    </div>
+                }
+            }
+        }
+    </HudPanel>
+</div>
+
+@code {
+    /// <summary>#159 Phase 2: operator mode — adds Report + per-incident Edit
+    /// (via the existing IncidentEditDialog). Default false = public read-only log.</summary>
+    [Parameter] public bool Manage { get; set; }
+
+    private IDictionary<DateTime, List<IncidentViewModel>>? incidentSetByDays;
+    private CancellationTokenSource cts = new CancellationTokenSource();
+
+    private bool HasAnyIncident =>
+        incidentSetByDays != null && incidentSetByDays.Values.Any(v => v.Count > 0);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadIncidentsAsync();
+    }
+
+    private async Task LoadIncidentsAsync()
+    {
+        incidentSetByDays = await IncidentApi.GetIncidentsAsync();
+    }
+
+    // #159 Phase 2: report (create) + edit an incident — reuses IncidentEditDialog.
+    // "Resolve" is done inside the edit dialog (the Resolved toggle, #106).
+    private async Task ReportAsync()
+    {
+        var incident = new IncidentViewModel();
+        var options = new DialogOptions { CloseOnEscapeKey = true, CloseButton = true };
+        var parameters = new DialogParameters<IncidentEditDialog> { { x => x.Incident, incident } };
+        var dialog = await DialogService.ShowAsync<IncidentEditDialog>(incident.Title, parameters, options);
+        if ((await dialog.Result) is { Canceled: false }) await LoadIncidentsAsync();
+    }
+
+    private async Task EditAsync(IncidentViewModel incident)
+    {
+        var options = new DialogOptions { CloseOnEscapeKey = true, CloseButton = true };
+        var parameters = new DialogParameters<IncidentEditDialog> { { x => x.Incident, incident } };
+        var dialog = await DialogService.ShowAsync<IncidentEditDialog>(incident.Title, parameters, options);
+        if ((await dialog.Result) is { Canceled: false }) await LoadIncidentsAsync();
+    }
+
+    // Issue #106 PR2: map severity onto the existing .incident.minor (amber) /
+    // .incident.severe (red) frame classes and the badge LED tone.
+    private static string SeverityClass(IncidentSeverity severity) => severity switch
+    {
+        IncidentSeverity.Minor => "minor",
+        _ => "severe",          // Severe + Critical share the red frame
+    };
+
+    private static string SeverityLed(IncidentSeverity severity) => severity switch
+    {
+        IncidentSeverity.Minor => "degraded",   // amber LED
+        _ => "down",                              // red LED
+    };
+}

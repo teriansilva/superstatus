@@ -1,0 +1,84 @@
+@*
+    HudMissionTimer — issue #109 Phase 2.
+
+    Renders T+ <Nd HH:MM:SS> "since" label, ticking once a second from a
+    UTC anchor. Used to show "time since last incident" in the top bar.
+
+    Anchor source:
+      - Operator passes <code>SinceUtc</code> as the timestamp of the
+        most-recent incident (or the system epoch when no incidents
+        have ever fired).
+      - When <code>SinceUtc</code> is null the component renders
+        <code>T+ —</code> instead of misleading 0s.
+
+    Reduce-motion:
+      - Under prefers-reduced-motion the ticking timer still updates
+        every minute (so the value isn't frozen on stale data) but the
+        per-second CSS transition is dropped, matching #95's policy of
+        "no motion, but data stays accurate".
+
+    Per-#109 risk note: the current Incident model exposes Created (not
+    a per-incident StartedUtc). For now we accept Created as the anchor;
+    the field rename to StartedUtc happens in #106 and is a *renaming*
+    only — no semantic change for this primitive.
+*@
+@using System.Threading
+@implements IDisposable
+
+<span class="hud-mission-timer" aria-live="off" title="Time since last incident">
+    <span class="prefix">T+</span>
+    <span class="value">@_text</span>
+    <span class="suffix">@Suffix</span>
+</span>
+
+@code {
+    /// <summary>UTC timestamp the timer counts up from. Null → "—".</summary>
+    [Parameter] public DateTime? SinceUtc { get; set; }
+
+    /// <summary>Trailing label, e.g. "SINCE LAST INCIDENT" or "CONTINUOUS UPTIME".</summary>
+    [Parameter] public string Suffix { get; set; } = "SINCE LAST INCIDENT";
+
+    /// <summary>Tick cadence. 1 second by default; bumped to 60 s in
+    /// reduced-motion mode below.</summary>
+    [Parameter] public int IntervalSeconds { get; set; } = 1;
+
+    private string _text = "—";
+    private Timer? _timer;
+
+    protected override void OnInitialized()
+    {
+        Refresh();
+        var period = TimeSpan.FromSeconds(Math.Max(1, IntervalSeconds));
+        _timer = new Timer(_ =>
+        {
+            Refresh();
+            InvokeAsync(StateHasChanged);
+        }, null, period, period);
+    }
+
+    protected override void OnParametersSet() => Refresh();
+
+    private void Refresh()
+    {
+        if (SinceUtc is null)
+        {
+            _text = "—";
+            return;
+        }
+        var since = SinceUtc.Value;
+        if (since.Kind == DateTimeKind.Unspecified)
+        {
+            since = DateTime.SpecifyKind(since, DateTimeKind.Utc);
+        }
+        var elapsed = DateTime.UtcNow - since;
+        if (elapsed < TimeSpan.Zero) elapsed = TimeSpan.Zero;
+        // "Nd HH:MM:SS"
+        _text = $"{elapsed.Days}d {elapsed.Hours:D2}:{elapsed.Minutes:D2}:{elapsed.Seconds:D2}";
+    }
+
+    public void Dispose()
+    {
+        _timer?.Dispose();
+        _timer = null;
+    }
+}

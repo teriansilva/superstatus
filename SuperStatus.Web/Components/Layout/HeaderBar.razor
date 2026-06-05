@@ -1,0 +1,163 @@
+@*
+    HeaderBar — tactical-HUD top bar (issue #95 Phase 2).
+
+    Composes Hud primitives:
+      - Brand badge (logo glyph + SUPERSTATUS wordmark)
+      - Optional description line from SuperStatusConfig
+      - STATUS // ONLINE tag with pulsing LED (driven by props; default UP)
+      - Right-aligned auth icons in the tactical icon-button style
+      - UTC clock that ticks once per second, paused if user prefers
+        reduced motion (renders the current time but does not tick)
+*@
+@using Microsoft.AspNetCore.Components.Authorization
+@using SuperStatus.Configuration
+@using SuperStatus.Data.ViewModels
+@using SuperStatus.Web.Components.Hud
+@implements IDisposable
+
+<header class="hud-topbar">
+    @* Issue #152 Phase 1: hamburger — hidden on desktop, shown ≤900px where the
+       .nav sidebar collapses to an off-canvas drawer. Toggles the layout's
+       _navOpen via OnMenuToggle; aria-controls points at NavMenu's #primary-nav.
+       #169: suppressed on the public shell (PublicLayout), which has no nav. *@
+    @if (ShowNavToggle)
+    {
+        <button class="hud-menu-btn" type="button" @onclick="OnMenuToggle"
+                aria-expanded="@(NavOpen ? "true" : "false")" aria-controls="primary-nav"
+                aria-label="Toggle navigation menu">
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                <path fill="currentColor" d="M3 6h18v2H3V6m0 5h18v2H3v-2m0 5h18v2H3v-2Z"/>
+            </svg>
+        </button>
+    }
+
+    <a class="brand" href="/">
+        <span class="logo" aria-hidden="true"></span>
+        @if (HasLogo)
+        {
+            <img class="brand-logo" src="@LogoUrl" alt="" />
+        }
+        @* #167 Phase 2: an operator-set title becomes the wordmark; the
+           stylized SUPER//STATUS mark is kept for the default ("SuperStatus"). *@
+        @if (UseStylizedBrand)
+        {
+            <span class="name">SUPER<em>STATUS</em></span>
+        }
+        else
+        {
+            <span class="name">@Title</span>
+        }
+        @if (!string.IsNullOrWhiteSpace(Description))
+        {
+            <span class="brand-desc">@Description</span>
+        }
+    </a>
+
+    <div class="topbar-status">
+        <HudTag Status="@(SystemState.ToLowerInvariant())" Tone="accent">
+            STATUS<span class="sep">//</span>@SystemState.ToUpperInvariant()
+        </HudTag>
+    </div>
+
+    <div class="topbar-spacer"></div>
+
+    <div class="clock" aria-live="off">
+        <span class="led" aria-hidden="true"></span>
+        <span class="clock-text">@_clockText</span>
+    </div>
+
+    @* Issue #109 Phase 2: mission timer. Anchor source is
+       documented on the primitive — uses Incident.Created today;
+       renames to StartedUtc with #106. Hidden behind a parameter
+       so test-mode can suppress it. The wrapper lets the responsive
+       topbar (#152) drop it first as width tightens. *@
+    @if (ShowMissionTimer)
+    {
+        <div class="topbar-mission">
+            <SuperStatus.Web.Components.Hud.Ambience.HudMissionTimer SinceUtc="@SinceLastIncidentUtc" />
+        </div>
+    }
+
+    <nav class="topbar-actions" aria-label="primary">
+        @* #177: viewer theme toggle (system / light / dark) — public. The grid
+           icon (experimental /grid view) and the admin gear were removed — the
+           only console entry is the toggleable footer Admin link (#170). *@
+        <ThemeToggle />
+    </nav>
+</header>
+
+@code {
+    /// <summary>"up" | "degraded" | "down" | "unknown" — drives the LED + tag label.</summary>
+    [Parameter] public string SystemState { get; set; } = "up";
+
+    /// <summary>#152: whether the mobile nav drawer is open (for the hamburger's aria-expanded).</summary>
+    [Parameter] public bool NavOpen { get; set; }
+
+    /// <summary>#152: raised when the hamburger is clicked — the layout toggles the drawer.</summary>
+    [Parameter] public EventCallback OnMenuToggle { get; set; }
+
+    /// <summary>#169: whether to render the nav hamburger. PublicLayout passes
+    /// false — the public shell has no nav rail/drawer to toggle.</summary>
+    [Parameter] public bool ShowNavToggle { get; set; } = true;
+
+    /// <summary>Anchor for the HudMissionTimer ("time since last incident").
+    /// Null hides the elapsed value as "—". Layout passes this in.</summary>
+    [Parameter] public DateTime? SinceLastIncidentUtc { get; set; }
+
+    /// <summary>Layout default true; tests can pass false to suppress the
+    /// mission timer when its in-component Threading.Timer would
+    /// interfere with the test runner.</summary>
+    [Parameter] public bool ShowMissionTimer { get; set; } = true;
+
+    /// <summary>#167 Phase 2: operator branding, cascaded by SiteSettingsProvider.
+    /// Title + logo override the config defaults below when set.</summary>
+    [CascadingParameter(Name = "SiteSettings")] private SiteSettingsViewModel? Settings { get; set; }
+
+    public string? Title { get; set; }
+    public string? Description { get; set; }
+    public string? LogoUrl { get; set; }
+    public bool HasLogo => !string.IsNullOrWhiteSpace(LogoUrl);
+
+    /// <summary>Keep the stylized SUPER//STATUS wordmark for the unset/default
+    /// title; any other operator title renders as plain brand text.</summary>
+    public bool UseStylizedBrand =>
+        string.IsNullOrWhiteSpace(Title) || Title.Equals("SuperStatus", StringComparison.OrdinalIgnoreCase);
+
+    private string _clockText = string.Empty;
+    private System.Threading.Timer? _clockTimer;
+
+    // Resolve branding on every parameter set so a late-arriving cascade (the
+    // provider loads /settings async) is reflected once it lands.
+    protected override void OnParametersSet()
+    {
+        Title = !string.IsNullOrWhiteSpace(Settings?.Title) ? Settings!.Title : null;
+        LogoUrl = !string.IsNullOrWhiteSpace(Settings?.LogoUrl) ? Settings!.LogoUrl : SuperStatusConfig.LogoUrl;
+        // #175: operator subtitle overrides the config description.
+        Description = !string.IsNullOrWhiteSpace(Settings?.Subtitle) ? Settings!.Subtitle : SuperStatusConfig.Description;
+    }
+
+    protected override void OnInitialized()
+    {
+        UpdateClock();
+        // 1 s tick. We don't gate on prefers-reduced-motion in C# (the
+        // browser pref isn't accessible server-side); instead the CSS
+        // `.clock` rule keeps the text static visually under
+        // reduced-motion and the SR-only label stays accurate.
+        _clockTimer = new System.Threading.Timer(_ =>
+        {
+            UpdateClock();
+            InvokeAsync(StateHasChanged);
+        }, null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+    }
+
+    private void UpdateClock()
+    {
+        var now = DateTime.UtcNow;
+        _clockText = $"UTC {now:HH:mm:ss}";
+    }
+
+    public void Dispose()
+    {
+        _clockTimer?.Dispose();
+    }
+}

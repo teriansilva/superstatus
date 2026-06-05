@@ -1,0 +1,77 @@
+@*
+    StatusCheckHistoricalGraph — per-day uptime history (issue #95 fix).
+
+    Renders the trailing history as the tactical UptimeStrip primitive
+    instead of full-saturation MudChip bars, so the card matches the
+    design-system mock: thin status cells in the semantic palette
+    (up green / degraded amber / down red), one per day.
+
+    Each day maps (#200): no samples that day → gap (grey); else any
+    failed/unreachable → down; any slow → degraded; otherwise → up. A day with
+    no checks stays grey until it accrues samples, mirroring the detail strip.
+*@
+@using SuperStatus.Data.Entities
+@using SuperStatus.Data.ViewModels
+@using SuperStatus.Web.Components.Hud
+@inject StatusApiClient StatusApi
+
+@if (_hasData)
+{
+    @* #201: StartDate + LoadDay make the strip interactive — each cell lazily
+       fetches its day detail on hover/focus (cached per date). *@
+    <UptimeStrip Days="@_cells" AriaLabel="Per-day uptime history" ExtraClass="card-history-strip"
+                 StartDate="@_startDate" LoadDetail="@LoadDay" />
+}
+
+@code
+{
+    [Parameter, EditorRequired]
+    public required StatusCheckViewModel statusCheck { get; set; }
+
+    /// <summary>#226: pre-fetched 30-day data supplied by the parent list's single
+    /// batched call. When non-null the strip uses it directly — NO per-card API
+    /// call (the former N+1). Null ⇒ fall back to a one-time self-fetch.</summary>
+    [Parameter]
+    public IReadOnlyList<HistoricalStatusDataOverviewChartViewModel>? Preloaded { get; set; }
+
+    private IReadOnlyList<string> _cells = System.Array.Empty<string>();
+    private DateOnly? _startDate;
+    private bool _hasData;
+    private bool _fetchedFallback;
+    // #201: per-date cache so re-hovering a cell never re-fetches.
+    private readonly Dictionary<DateOnly, DayDetailViewModel?> _dayCache = new();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Preloaded is not null)
+        {
+            // Dashboard path: data handed in by the list — rebuild on every refresh,
+            // never call the API per card.
+            BuildStrip(Preloaded);
+            return;
+        }
+
+        // Standalone path (card used outside the batched list): fetch once.
+        if (!_fetchedFallback)
+        {
+            _fetchedFallback = true;
+            BuildStrip(await StatusApi.GetHistoricalStatusData(statusCheck.Id));
+        }
+    }
+
+    private void BuildStrip(IReadOnlyList<HistoricalStatusDataOverviewChartViewModel> data)
+    {
+        var ordered = data.OrderBy(d => d.Date).ToList();
+        _cells = ordered.Select(UptimeCell.From).ToList();
+        _startDate = ordered.Count > 0 ? ordered[0].Date : null;
+        _hasData = ordered.Count > 0;
+    }
+
+    private async Task<DayDetailViewModel?> LoadDay(DateOnly date)
+    {
+        if (_dayCache.TryGetValue(date, out var cached)) return cached;
+        var detail = await StatusApi.GetDayDetailAsync(statusCheck.Id, date);
+        _dayCache[date] = detail;
+        return detail;
+    }
+}

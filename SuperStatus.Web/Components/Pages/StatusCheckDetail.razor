@@ -1,0 +1,352 @@
+@*
+    StatusCheckDetail — public service-detail page (issue #103).
+
+    Composes the Hud primitives landed in #99 / #110. Read-only;
+    operator actions defer to issue #105 (run-now / pause / resume).
+
+    States captured by tests + per-#95 acceptance:
+      - Populated UP   — accent green brackets, STATUS=UP tag, healthy ticks.
+      - Populated DOWN — critical red brackets, CURRENT=DOWN callsign.
+      - Not found     — empty HudPanel with "SERVICE UNKNOWN" callsign
+                        when the API returns 404. Circuit stays alive.
+      - Loading       — same shell with "LOADING…" callsign while initial
+                        fetch is in flight.
+*@
+@page "/status/{Id:long}"
+@layout Layout.PublicLayout
+@using Humanizer
+@using SuperStatus.Configuration
+@using SuperStatus.Data.Constants
+@using SuperStatus.Data.Entities
+@using SuperStatus.Data.ViewModels
+@inject StatusApiClient StatusApi
+@inject NavigationManager Nav
+@implements IAsyncDisposable
+
+<PageTitle>@PageTitleText</PageTitle>
+
+@if (_state == ViewState.Loading)
+{
+    <HudPanel ExtraClass="detail-frame">
+        <HudCallsign Label="LOADING" Value="Resolving service…" Meta="@_metaLine" />
+    </HudPanel>
+}
+else if (_state == ViewState.NotFound)
+{
+    <HudPanel ExtraClass="detail-frame">
+        <HudCallsign Label="SERVICE" Value="Unknown" Meta="@_metaLine" />
+        <p class="error-prose">
+            No service with id <code>@Id</code> is registered. It may have
+            been deleted, or the URL may be wrong.
+        </p>
+        <div class="error-actions">
+            <a class="btn primary" href="/">RETURN TO DASHBOARD</a>
+        </div>
+    </HudPanel>
+}
+else
+{
+    var vm = _viewModel!;
+    var recent = _recentTicks ?? new();
+    var heroAccent = IsCurrentlyDown(vm) ? "critical" : "";
+
+    <HudCallsign Label="SERVICE" Value="@vm.Title" Meta="@_metaLine" />
+
+    <HudPanel Accent="@heroAccent" ExtraClass="detail-frame hero">
+        <HudCallsign Label="CURRENT" Value="@CurrentStateLabel(vm)" Meta="@LastCheckLabel(vm)" />
+        <HudTelemetryStrip>
+            @* #175: the service-detail page shows live status only — the endpoint
+               URL, latency threshold and the rest of the check config live in the
+               operator dashboard (/admin), not here, for any viewer. *@
+            <HudChip K="Last status" V="@LastStatusLabel(vm)" Tone="@(IsCurrentlyDown(vm) ? "critical" : "")" />
+            <HudChip K="Last latency" V="@LastLatencyLabel(vm)" />
+            <HudChip K="Uptime 30d" V="@_uptime30Label" Tone="accent" />
+            <HudChip K="Next check" V="@NextCheckLabel" />
+        </HudTelemetryStrip>
+    </HudPanel>
+
+    <HudPanel ExtraClass="detail-frame uptime-card">
+        <HudCallsign Label="30-DAY" Value="Uptime strip" />
+        <UptimeStrip Days="@_uptime30" AriaLabel="Past 30 days uptime"
+                     StartDate="@_uptimeStart" LoadDetail="@LoadDay" />
+        <div class="uptime-legend" aria-hidden="true">
+            <span class="up">UP</span>
+            <span class="degraded">DEGRADED</span>
+            <span class="down">DOWN</span>
+        </div>
+    </HudPanel>
+
+    @* #175: the public service page is status-only — check config (URL,
+       thresholds, poll interval, webhook) is managed in the operator dashboard
+       (/admin), so it is not duplicated here for any viewer. Tick history spans
+       the full width below the uptime strip. *@
+    <HudPanel ExtraClass="detail-frame">
+        <HudCallsign Label="RECENT" Value="Tick history" />
+        @if (recent.Count == 0)
+        {
+            <p class="error-prose subtle">No ticks recorded yet.</p>
+        }
+        else
+        {
+            <HudKeyValueGrid>
+                @foreach (var t in recent)
+                {
+                    var failType = ComputeFailType(t, vm);
+                    var led = LedFor(failType);
+                    var tone = ToneFor(failType);
+                    var v = ValueLabel(t, failType);
+                    <HudKeyValue K="@FormatTime(t.TimeOfCheckUTC)" V="@v" Led="@led" Tone="@tone" />
+                }
+            </HudKeyValueGrid>
+        }
+    </HudPanel>
+}
+
+@code {
+    [Parameter] public long Id { get; set; }
+
+    private enum ViewState { Loading, Loaded, NotFound }
+    private ViewState _state = ViewState.Loading;
+    private StatusCheckViewModel? _viewModel;
+    private List<HistoricalStatusData>? _recentTicks;
+    private IReadOnlyList<string> _uptime30 = Array.Empty<string>();
+    private string _uptime30Label = "—";
+    // #201: the oldest cell's date (today-29) + a per-date cache for the lazy
+    // hover detail, so re-hovering a cell never re-fetches.
+    private DateOnly _uptimeStart = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-29);
+    private readonly Dictionary<DateOnly, DayDetailViewModel?> _dayCache = new();
+
+    private async Task<DayDetailViewModel?> LoadDay(DateOnly date)
+    {
+        if (_dayCache.TryGetValue(date, out var cached)) return cached;
+        var detail = await StatusApi.GetDayDetailAsync(Id, date);
+        _dayCache[date] = detail;
+        return detail;
+    }
+    private string _metaLine = "";
+    private long _previousLoadedId;
+
+    private CancellationTokenSource? _pollCts;
+    private Task? _pollTask;
+    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
+
+    private string PageTitleText =>
+        _state == ViewState.NotFound ? "Unknown service — SuperStatus"
+        : _viewModel is not null ? $"{_viewModel.Title} — SuperStatus"
+        : "Service — SuperStatus";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Id == _previousLoadedId && _state != ViewState.Loading)
+        {
+            return;
+        }
+        _previousLoadedId = Id;
+        _state = ViewState.Loading;
+        await StopPollingAsync();
+        await RefreshAsync(initial: true);
+        StartPolling();
+    }
+
+    private async Task RefreshAsync(bool initial)
+    {
+        try
+        {
+            // The detail page reuses the same /statuscheck list endpoint
+            // for the view-model snapshot; on miss the recent-ticks
+            // endpoint also 404s, giving us a clean NotFound result.
+            var recent = await StatusApi.GetRecentTicksAsync(Id, 8);
+            if (recent is null)
+            {
+                _state = ViewState.NotFound;
+                _viewModel = null;
+                _recentTicks = null;
+                return;
+            }
+            _recentTicks = recent;
+
+            if (initial || _viewModel is null)
+            {
+                var paged = await StatusApi.GetStatusAsync();
+                _viewModel = paged.Results.FirstOrDefault(x => x.Id == Id);
+                if (_viewModel is null)
+                {
+                    _state = ViewState.NotFound;
+                    return;
+                }
+            }
+            else if (recent.Count > 0)
+            {
+                // Hermes #111 fix: on every poll, re-derive the hero's
+                // MostRecentHistoricalStatusCheck from the freshest recent
+                // tick. Without this, the hero / last status / latency /
+                // next-check countdown stayed pinned to the initial
+                // snapshot while RECENT updated underneath — the public
+                // detail page could show "Operational" in the hero while
+                // RECENT showed a fresh failing tick.
+                _viewModel.MostRecentHistoricalStatusCheck =
+                    new HistoricalStatusDataViewModel(recent[0]);
+            }
+
+            // #223: the 30-day strip is built from the same padded daily-rollup
+            // source the live-status card uses (GetHistoricalStatusData) — NOT the
+            // 8 recent ticks above (which only cover today, leaving 29 grey gaps).
+            // Fetched once per load; the 30-day strip is slow-moving and the hero /
+            // tick-history below stay live off the per-poll recent ticks.
+            if (initial)
+            {
+                var historical = await StatusApi.GetHistoricalStatusData(Id);
+                BuildUptimeStrip(historical);
+            }
+            _state = ViewState.Loaded;
+            _metaLine = $"UTC {DateTime.UtcNow:HH:mm:ss}";
+        }
+        catch (Exception)
+        {
+            // Treat unexpected fetch errors as not-found from the user's
+            // perspective — better than a dead Blazor circuit.
+            if (_state == ViewState.Loading)
+            {
+                _state = ViewState.NotFound;
+            }
+        }
+    }
+
+    private void StartPolling()
+    {
+        _pollCts = new CancellationTokenSource();
+        var token = _pollCts.Token;
+        _pollTask = Task.Run(async () =>
+        {
+            try
+            {
+                using var timer = new PeriodicTimer(PollInterval);
+                while (await timer.WaitForNextTickAsync(token))
+                {
+                    await RefreshAsync(initial: false);
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+            catch (OperationCanceledException) { }
+        }, token);
+    }
+
+    private async Task StopPollingAsync()
+    {
+        try { _pollCts?.Cancel(); }
+        catch { /* nothing meaningful to handle */ }
+        if (_pollTask is not null)
+        {
+            try { await _pollTask; } catch { /* swallow */ }
+        }
+        _pollCts?.Dispose();
+        _pollCts = null;
+        _pollTask = null;
+    }
+
+    public async ValueTask DisposeAsync() => await StopPollingAsync();
+
+    // --- helpers ---------------------------------------------------------
+
+    private static bool IsCurrentlyDown(StatusCheckViewModel vm)
+    {
+        var f = vm.MostRecentHistoricalStatusCheck?.FailType;
+        return f == FailType.StatusCode || f == FailType.Unreachable;
+    }
+
+    private static FailType ComputeFailType(HistoricalStatusData t, StatusCheckViewModel vm)
+    {
+        if (t.CheckFailed) return FailType.Unreachable;
+        if (t.HttpStatusCode != vm.ExpectedStatusCode) return FailType.StatusCode;
+        if (t.ResponseTimeInMs > vm.ExpectedResponseTimeInMs) return FailType.ResponseTime;
+        return FailType.NoFail;
+    }
+
+    private void BuildUptimeStrip(List<HistoricalStatusDataOverviewChartViewModel> days)
+    {
+        // #223: mirror the live-status card — one cell per padded rollup day,
+        // mapped through the shared UptimeCell vocabulary so the two strips match.
+        var ordered = days.OrderBy(d => d.Date).ToList();
+        _uptime30 = ordered.Select(UptimeCell.From).ToList();
+        _uptimeStart = ordered.Count > 0
+            ? ordered[0].Date
+            : DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-29);
+
+        var knownDays = ordered.Count(d => d.HasData);
+        var upDays = ordered.Count(d => UptimeCell.From(d) == "up");
+        _uptime30Label = knownDays == 0 ? "—" : $"{(upDays * 100.0 / knownDays):0.0}%";
+    }
+
+    private static string CurrentStateLabel(StatusCheckViewModel vm)
+    {
+        var f = vm.MostRecentHistoricalStatusCheck?.FailType;
+        return f switch
+        {
+            null                    => "Unknown",
+            FailType.NoFail         => "Operational",
+            FailType.ResponseTime   => "Degraded",
+            FailType.StatusCode     => "Down",
+            FailType.Unreachable    => "Down",
+            _                       => "Unknown",
+        };
+    }
+
+    private static string LastCheckLabel(StatusCheckViewModel vm) =>
+        vm.MostRecentHistoricalStatusCheck is { } r
+            ? $"Last check {r.TimeOfCheckUTC.Humanize()}"
+            : "Never checked";
+
+    private static string LastStatusLabel(StatusCheckViewModel vm) =>
+        vm.MostRecentHistoricalStatusCheck is { } r
+            ? (r.CheckFailed ? "transport failure" : $"HTTP {r.HttpStatusCode}")
+            : "—";
+
+    private static string LastLatencyLabel(StatusCheckViewModel vm) =>
+        vm.MostRecentHistoricalStatusCheck is { } r && !r.CheckFailed
+            ? $"{r.ResponseTimeInMs} ms"
+            : "—";
+
+    private string NextCheckLabel
+    {
+        get
+        {
+            if (_viewModel?.MostRecentHistoricalStatusCheck is null)
+            {
+                return "—";
+            }
+            // #82: count down to this check's own next poll, not the global tick.
+            int interval = _viewModel.IntervalSeconds > 0 ? _viewModel.IntervalSeconds : SuperStatusConfig.JobIntervallInSeconds;
+            var elapsed = (DateTime.UtcNow - _viewModel.MostRecentHistoricalStatusCheck.TimeOfCheckUTC).TotalSeconds;
+            var remaining = Math.Max(0, interval - elapsed);
+            return $"{remaining:0}s";
+        }
+    }
+
+    private static string LedFor(FailType f) => f switch
+    {
+        FailType.NoFail                                       => "up",
+        FailType.ResponseTime                                 => "degraded",
+        FailType.StatusCode or FailType.Unreachable           => "down",
+        _                                                     => "unknown",
+    };
+
+    private static string ToneFor(FailType f) => f switch
+    {
+        FailType.NoFail                                       => "up",
+        FailType.ResponseTime                                 => "degraded",
+        FailType.StatusCode or FailType.Unreachable           => "down",
+        _                                                     => "",
+    };
+
+    private static string ValueLabel(HistoricalStatusData t, FailType f) =>
+        f switch
+        {
+            FailType.Unreachable                  => "conn refused",
+            FailType.StatusCode                   => $"{t.HttpStatusCode} • {t.ResponseTimeInMs} ms",
+            FailType.ResponseTime                 => $"{t.HttpStatusCode} • {t.ResponseTimeInMs} ms",
+            FailType.NoFail                       => $"{t.HttpStatusCode} • {t.ResponseTimeInMs} ms",
+            _                                     => "—",
+        };
+
+    private static string FormatTime(DateTime utc) => utc.ToString("HH:mm:ss");
+}

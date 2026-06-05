@@ -1,0 +1,123 @@
+using System.Net;
+using System.Text;
+using System.Text.Json;
+using Bunit;
+using Bunit.TestDoubles;
+using Microsoft.Extensions.DependencyInjection;
+using SuperStatus.Data.ViewModels;
+using SuperStatus.Web;
+using SuperStatus.Web.Components.Layout;
+using BunitTestContext = Bunit.TestContext;
+
+namespace SuperStatus.Tests;
+
+/// <summary>
+/// Issue #167 Phase 2 — operator branding in the shell. Verifies the
+/// SiteSettingsProvider applies the chosen accent on :root (and only for a valid
+/// #rrggbb), and that HeaderBar honours the cascaded title + logo.
+/// </summary>
+[TestClass]
+public class SiteSettingsUiTests
+{
+    // Stub the /settings GET so the provider renders without a real backend.
+    private sealed class StubHandler(SiteSettingsViewModel vm) : HttpMessageHandler
+    {
+        private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(JsonSerializer.Serialize(vm, Json), Encoding.UTF8, "application/json"),
+            });
+    }
+
+    private static BunitTestContext ContextWithSettings(SiteSettingsViewModel vm)
+    {
+        var ctx = new BunitTestContext();
+        ctx.AddTestAuthorization();
+        var client = new SettingsApiClient(new HttpClient(new StubHandler(vm)) { BaseAddress = new Uri("http://demo.local") });
+        ctx.Services.AddSingleton(client);
+        return ctx;
+    }
+
+    [TestMethod]
+    public void Provider_AppliesAccentVars_ForValidHex()
+    {
+        using var ctx = ContextWithSettings(new SiteSettingsViewModel { AccentColor = "#f5a524" });
+        var cut = ctx.RenderComponent<SiteSettingsProvider>();
+
+        // The :root override carries the accent + its rgba soft/glow derivations.
+        Assert.IsTrue(cut.Markup.Contains("--accent:#f5a524"), "accent var applied");
+        Assert.IsTrue(cut.Markup.Contains("rgba(245,165,36,0.55)"), "accent-soft derived from hex");
+        Assert.IsTrue(cut.Markup.Contains("rgba(245,165,36,0.20)"), "accent-glow derived from hex");
+    }
+
+    [TestMethod]
+    public void Provider_OmitsStyle_ForInvalidOrEmptyAccent()
+    {
+        using var ctx = ContextWithSettings(new SiteSettingsViewModel { AccentColor = "" });
+        var cut = ctx.RenderComponent<SiteSettingsProvider>();
+
+        Assert.IsFalse(cut.Markup.Contains(":root{--accent"),
+            "no accent override emitted for an empty/invalid accent — theme default stands");
+    }
+
+    [TestMethod]
+    public void HeaderBar_CustomTitle_ReplacesStylizedWordmark()
+    {
+        using var ctx = new BunitTestContext();
+        ctx.AddTestAuthorization();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose; // #177: HeaderBar→ThemeToggle calls JS on render
+        var cut = ctx.RenderComponent<HeaderBar>(p => p
+            .AddCascadingValue("SiteSettings", new SiteSettingsViewModel { Title = "Acme Service Status" }));
+
+        var name = cut.Find(".brand .name");
+        Assert.AreEqual("Acme Service Status", name.TextContent.Trim());
+        Assert.IsNull(name.QuerySelector("em"), "custom title is plain text, not the SUPER//STATUS mark");
+    }
+
+    [TestMethod]
+    public void HeaderBar_DefaultTitle_KeepsStylizedWordmark()
+    {
+        using var ctx = new BunitTestContext();
+        ctx.AddTestAuthorization();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose; // #177: HeaderBar→ThemeToggle calls JS on render
+        // "SuperStatus" (the ultimate seed fallback) keeps the stylized mark.
+        var cut = ctx.RenderComponent<HeaderBar>(p => p
+            .AddCascadingValue("SiteSettings", new SiteSettingsViewModel { Title = "SuperStatus" }));
+
+        Assert.IsNotNull(cut.Find(".brand .name em"), "stylized SUPER<em>STATUS</em> retained for the default title");
+    }
+
+    [TestMethod]
+    public void HeaderBar_CascadedSubtitle_RendersBrandDesc()
+    {
+        using var ctx = new BunitTestContext();
+        ctx.AddTestAuthorization();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose; // #177: HeaderBar→ThemeToggle calls JS on render
+        var cut = ctx.RenderComponent<HeaderBar>(p => p
+            .AddCascadingValue("SiteSettings", new SiteSettingsViewModel
+            {
+                Title = "TEST",
+                Subtitle = "Acme Service Status Information",
+            }));
+
+        Assert.AreEqual("Acme Service Status Information", cut.Find(".brand-desc").TextContent.Trim());
+    }
+
+    [TestMethod]
+    public void HeaderBar_CascadedLogo_RendersBrandImage()
+    {
+        using var ctx = new BunitTestContext();
+        ctx.AddTestAuthorization();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose; // #177: HeaderBar→ThemeToggle calls JS on render
+        var cut = ctx.RenderComponent<HeaderBar>(p => p
+            .AddCascadingValue("SiteSettings", new SiteSettingsViewModel
+            {
+                Title = "Acme Service Status",
+                LogoUrl = "https://cdn.example.com/logo.svg",
+            }));
+
+        var img = cut.Find("img.brand-logo");
+        Assert.AreEqual("https://cdn.example.com/logo.svg", img.GetAttribute("src"));
+    }
+}

@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <meta name="description" content="SuperStatus — clean, modern status pages for your services, incidents and uptime. Self-host it free, or let us host it from €9/mo." />
+    <link rel="icon" type="image/png" href="_content/SuperStatus.Ui.Shared/favicon.png" />
+
+    @* Shared design system (single source of truth lives in
+       SuperStatus.Ui.Shared, same file the dashboard uses). *@
+    <link rel="stylesheet" href="_content/SuperStatus.Ui.Shared/hud-theme.css" />
+    <link rel="stylesheet" href="landing.css" />
+
+    @* Resolve light/dark from the OS preference before first paint so there's
+       no flash of the wrong theme. The landing page follows the system theme
+       (no in-page toggle); runtime OS changes are handled by hud-theme.js. *@
+    <script>
+        (function () {
+            var dark = true;
+            try { dark = window.matchMedia('(prefers-color-scheme: dark)').matches; } catch (e) { /* assume dark */ }
+            document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+        })();
+    </script>
+
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <HeadOutlet />
+</head>
+<body>
+    <Routes />
+    @* Keep the shared theme module so OS light/dark changes re-apply live. *@
+    <script src="_content/SuperStatus.Ui.Shared/js/hud-theme.js"></script>
+</body>
+</html>

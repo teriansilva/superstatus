@@ -1,0 +1,54 @@
+@*
+    FooterBar — tactical classification strip (issue #95 Phase 2; #170 customizable).
+
+    Renders the operator-configured footer from the cascaded site settings:
+    a static footer line + a flat list of links, plus a toggleable Admin/console
+    link and (when signed in) Sign out. Replaces the #109 rotating-classification
+    ambience (HudClassificationFooter) — the footer is now static and intentional.
+    Falls back to the seeded classification text when no settings cascade (e.g.
+    a bare test render). Same component on the public + operator shells.
+*@
+@using Microsoft.AspNetCore.Components.Authorization
+@using SuperStatus.Data.ViewModels
+
+<footer class="hud-footer" role="contentinfo">
+    <span class="classification">@FooterText</span>
+    <nav class="footer-links" aria-label="footer">
+        @foreach (var link in Links)
+        {
+            <a href="@link.Url" target="_blank" rel="noopener">@link.Label</a>
+        }
+        <AuthorizeView>
+            <Authorized>
+                @if (ShowAdminLink)
+                {
+                    <a href="/admin">Operator console</a>
+                }
+                <a href="/logout">Sign out</a>
+            </Authorized>
+            <NotAuthorized>
+                @if (ShowAdminLink)
+                {
+                    <a href="/admin">Admin</a>
+                }
+            </NotAuthorized>
+        </AuthorizeView>
+    </nav>
+    <span class="footer-spacer"></span>
+    <a class="powered" href="https://superstatus.io" target="_blank" rel="noopener">
+        Powered by SuperStatus
+    </a>
+</footer>
+
+@code {
+    /// <summary>#170: operator footer settings, cascaded by SiteSettingsProvider.</summary>
+    [CascadingParameter(Name = "SiteSettings")] private SiteSettingsViewModel? Settings { get; set; }
+
+    private string FooterText =>
+        string.IsNullOrWhiteSpace(Settings?.FooterText) ? "UNCLASSIFIED // INTERNAL USE" : Settings!.FooterText;
+
+    private List<FooterLink> Links => Settings?.FooterLinks ?? new();
+
+    /// <summary>Default on when there's no settings cascade.</summary>
+    private bool ShowAdminLink => Settings?.ShowAdminLink ?? true;
+}

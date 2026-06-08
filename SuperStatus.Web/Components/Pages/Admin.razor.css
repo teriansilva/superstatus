@@ -1,0 +1,11 @@
+/* Admin — tactical operator console (issue #95 Phase 4). */
+/* The console's section rhythm (.admin-console flex/gap, .admin-section,
+   per-panel margin resets) lives in hud-theme.css so /admin and the
+   /ui-gallery operator preview share one cadence. */
+
+::deep .admin-note {
+    color: var(--text-3);
+    font-size: 12px;
+    line-height: 1.6;
+    margin: var(--s-3, 12px) 0 0;
+}

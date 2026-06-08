@@ -1,0 +1,142 @@
+/* ============================================================
+   hud-dialog.css — Issue #139 (P2): a tactical-HUD skin for the
+   status-check + incident edit dialogs.
+
+   EVERYTHING is scoped under `.mud-dialog.hud-dialog` (the dialogs opt in via
+   Class="hud-dialog"), so global MudBlazor chrome — auth pages, other modals —
+   is untouched (per the #139 "no global-override bleed" refinement).
+   ============================================================ */
+
+/* ---------- panel surface ---------- */
+.mud-dialog.hud-dialog {
+  background: var(--bg-1);
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+  font-family: var(--font-mono);
+  position: relative;
+  overflow: visible;
+}
+
+/* Corner brackets (TL + BR) — the HudPanel motif, accent reticle. */
+.mud-dialog.hud-dialog::before,
+.mud-dialog.hud-dialog::after {
+  content: ""; position: absolute; width: 14px; height: 14px; pointer-events: none;
+}
+.mud-dialog.hud-dialog::before { top: -1px; left: -1px; border-top: 1.5px solid var(--accent); border-left: 1.5px solid var(--accent); }
+.mud-dialog.hud-dialog::after  { bottom: -1px; right: -1px; border-bottom: 1.5px solid var(--accent); border-right: 1.5px solid var(--accent); }
+
+/* ---------- title bar / HUD header ---------- */
+.mud-dialog.hud-dialog .mud-dialog-title {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: var(--s-3);
+  margin-bottom: var(--s-2);
+}
+.hud-dialog-head { display: flex; align-items: center; gap: var(--s-3); }
+.hud-dialog-head .hud-dialog-name {
+  font-size: 15px; color: var(--text-1); letter-spacing: 0.04em; font-weight: 600;
+}
+/* Close (×) button */
+.mud-dialog.hud-dialog .mud-dialog-title .mud-icon-button { color: var(--text-3); }
+.mud-dialog.hud-dialog .mud-dialog-title .mud-icon-button:hover { color: var(--accent); }
+
+/* ---------- section divider header ---------- */
+.hud-dialog-section {
+  font-family: var(--font-mono);
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.18em;
+  color: var(--text-3);
+  padding-top: var(--s-3); margin-top: var(--s-2);
+  border-top: 1px solid var(--line);
+}
+
+/* ---------- form fields ---------- */
+/* Floating label → mono uppercase hint colour. */
+.mud-dialog.hud-dialog .mud-input-label {
+  font-family: var(--font-mono); font-size: 11px;
+  text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-3);
+}
+.mud-dialog.hud-dialog .mud-input-label.mud-input-label-inputcontrol { color: var(--text-3); }
+
+/* The input box: dark filled, hairline border, no Material underline. */
+.mud-dialog.hud-dialog .mud-input.mud-input-text {
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  padding: 4px var(--s-3);
+  transition: border-color 120ms ease;
+}
+.mud-dialog.hud-dialog .mud-input-underline::before,
+.mud-dialog.hud-dialog .mud-input-underline::after { content: none !important; }
+
+/* Input text + adornment icons. */
+.mud-dialog.hud-dialog .mud-input-slot,
+.mud-dialog.hud-dialog input.mud-input-root,
+.mud-dialog.hud-dialog textarea.mud-input-root,
+.mud-dialog.hud-dialog .mud-select .mud-input-slot {
+  color: var(--text-1); font-family: var(--font-mono); font-size: 13px;
+}
+.mud-dialog.hud-dialog .mud-input-adornment .mud-icon-root { color: var(--text-3); font-size: 1rem; }
+
+/* Focus / error reticle on the box itself. */
+.mud-dialog.hud-dialog .mud-input.mud-input-text.mud-focused { border-color: var(--accent); }
+.mud-dialog.hud-dialog .mud-input.mud-input-text.mud-input-error { border-color: var(--status-down); }
+
+/* Helper + validation text. */
+.mud-dialog.hud-dialog .mud-input-helper-text {
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.04em; color: var(--text-3);
+}
+.mud-dialog.hud-dialog .mud-input-helper-text.mud-input-error,
+.mud-dialog.hud-dialog .mud-input-error { color: var(--status-down); }
+
+/* Checkboxes — accent tick, mono uppercase label. */
+.mud-dialog.hud-dialog .mud-checkbox .mud-checkbox-label,
+.mud-dialog.hud-dialog .mud-checkbox .mud-typography {
+  font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--text-2);
+}
+/* Tick → brand accent, not the MudBlazor default purple primary. The icon
+   colour is set by MudThemeProvider's injected palette (higher cascade than the
+   :root token remap), so override the icon directly within the scoped dialog. */
+.mud-dialog.hud-dialog .mud-checkbox .mud-icon-root { color: var(--accent) !important; }
+
+/* ---------- actions ---------- */
+.mud-dialog.hud-dialog .mud-dialog-actions {
+  border-top: 1px solid var(--line);
+  padding-top: var(--s-3); margin-top: var(--s-3);
+  gap: var(--s-2);
+}
+.mud-dialog.hud-dialog .mud-dialog-actions .mud-button-root {
+  font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.14em;
+  font-size: 11px; border-radius: 0; box-shadow: none;
+  background: transparent; border: 1px solid var(--line-strong); color: var(--text-1);
+}
+.mud-dialog.hud-dialog .mud-dialog-actions .mud-button-root:hover {
+  border-color: var(--accent); color: var(--accent); background: transparent;
+}
+/* Save (primary) — accent-outline, the operational confirm. */
+.mud-dialog.hud-dialog .mud-dialog-actions .mud-button-filled-primary {
+  border-color: var(--accent-soft); color: var(--accent);
+}
+.mud-dialog.hud-dialog .mud-dialog-actions .mud-button-filled-primary:hover { background: var(--accent-glow); }
+/* Destructive confirm (#164) — red-outline so a delete reads as dangerous. */
+.mud-dialog.hud-dialog .mud-dialog-actions .mud-button-filled-error {
+  border-color: var(--status-down); color: var(--status-down); background: transparent;
+}
+.mud-dialog.hud-dialog .mud-dialog-actions .mud-button-filled-error:hover {
+  border-color: var(--status-down); color: var(--status-down); background: rgba(192, 32, 32, 0.14);
+}
+.mud-dialog.hud-dialog .mud-dialog-actions .mud-button-root:disabled { opacity: 0.45; }
+
+/* ---------- mobile: keep the dialog scrollable, not clipped ---------- */
+@media (max-width: 600px) {
+  .mud-dialog.hud-dialog { width: 94vw; max-height: 92vh; }
+  .mud-dialog.hud-dialog .mud-dialog-content { max-height: 70vh; overflow-y: auto; }
+}
+
+/* ---------- confirm/destructive message (#164 HudConfirmDialog) ---------- */
+.mud-dialog.hud-dialog .hud-confirm-msg {
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0;
+  max-width: 44ch;
+}

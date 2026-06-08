@@ -1,0 +1,94 @@
+/* Issue #181 Phase 3: first-run setup wizard (inline on /admin). */
+
+.setup-wizard {
+    max-width: 720px;
+    margin: var(--s-6, 32px) auto;
+}
+
+::deep .setup-frame { margin-top: var(--s-3, 12px); }
+
+.setup-intro {
+    color: var(--text-2, #a7abb3);
+    font-size: 14px;
+    line-height: 1.6;
+    margin: 6px 0 0;
+}
+
+.setup-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px 24px;
+    margin-top: 8px;
+}
+
+.setup-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.setup-label {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-2, #a7abb3);
+}
+
+.setup-input {
+    background: var(--glass, rgba(255, 255, 255, 0.03));
+    border: 1px solid var(--line, rgba(255, 255, 255, 0.12));
+    border-radius: 2px;
+    color: var(--text-1, #e8eaed);
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 13px;
+    padding: 9px 10px;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.setup-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent-soft);
+}
+
+.setup-accent {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.setup-swatch {
+    width: 44px;
+    height: 36px;
+    padding: 0;
+    border: 1px solid var(--line, rgba(255, 255, 255, 0.12));
+    border-radius: 2px;
+    background: transparent;
+    cursor: pointer;
+}
+
+.setup-hex { width: 110px; flex: 0 0 auto; text-transform: lowercase; }
+
+.setup-hint {
+    display: block;
+    margin-top: 12px;
+    font-size: 11px;
+    color: var(--text-3, #6b7079);
+    line-height: 1.4;
+}
+
+.setup-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 22px;
+}
+
+.setup-actions-spacer { flex: 1 1 auto; }
+
+@media (max-width: 640px) {
+    .setup-grid { grid-template-columns: minmax(0, 1fr); }
+}

@@ -1,0 +1,27 @@
+/* StatusCheckDetail — issue #103. */
+
+::deep .detail-frame {
+    max-width: var(--content-max);
+    margin: 0 auto var(--s-4, 16px);
+}
+
+::deep .detail-frame.hero { margin-top: var(--s-3, 12px); }
+::deep .uptime-card { padding-top: var(--s-5, 24px); }
+
+::deep .error-prose {
+    color: var(--text-2);
+    font-size: 13px;
+    line-height: 1.6;
+    margin: var(--s-4, 16px) 0 0;
+}
+::deep .error-prose.subtle {
+    color: var(--text-3);
+    font-size: 12px;
+    border-left: 1px solid var(--line);
+    padding-left: var(--s-3, 12px);
+}
+::deep .error-actions {
+    display: flex;
+    gap: var(--s-3, 12px);
+    margin-top: var(--s-5, 24px);
+}

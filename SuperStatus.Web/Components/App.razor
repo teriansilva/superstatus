@@ -1,0 +1,72 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    @* Issue #241 Phase C: PWA manifest, so the app is installable and Web Push works. *@
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="stylesheet" href="app.css" />
+    <link rel="stylesheet" href="SuperStatus.Web.styles.css" />
+    <link rel="icon" type="image/svg+xml" href="_content/SuperStatus.Ui.Shared/favicon.svg" />
+    <link rel="icon" type="image/png" href="_content/SuperStatus.Ui.Shared/favicon.png" />
+    <link rel="apple-touch-icon" href="_content/SuperStatus.Ui.Shared/apple-touch-icon.png" />
+    <link href="https://fonts.googleapis.com/css?family=Roboto:300,400,500,700&display=swap" rel="stylesheet" />
+    <link href="@Assets["_content/MudBlazor/MudBlazor.min.css"]" rel="stylesheet" />
+    @* Tactical-HUD theme — issue #95 Phase 1. Loaded after MudBlazor so
+       the tokens declared on :root win. Layout reskin lands in Phase 2;
+       Phase 1 only adds the token set + primitives under Components/Hud/. *@
+    <link rel="stylesheet" href="_content/SuperStatus.Ui.Shared/hud-theme.css" />
+    @* Issue #177: resolve the stored theme (light/dark/system) and set the
+       data-theme attribute before first paint, so there's no flash of the wrong
+       theme. Runtime changes are owned by wwwroot/js/hud-theme.js. *@
+    <script>
+        (function () {
+            // Isolate the storage read: blocked storage (SecurityError) must fall
+            // back to 'system' and still resolve via matchMedia — NOT hard-code
+            // dark, which would flash on a light-preference system.
+            var m = 'system';
+            try {
+                var s = localStorage.getItem('hudTheme');
+                if (s === 'light' || s === 'dark' || s === 'system') m = s;
+            } catch (e) { /* storage blocked → keep 'system' */ }
+            var dark = true;
+            try { dark = window.matchMedia('(prefers-color-scheme: dark)').matches; } catch (e) { /* assume dark */ }
+            var eff = m === 'system' ? (dark ? 'dark' : 'light') : m;
+            document.documentElement.setAttribute('data-theme', eff);
+        })();
+    </script>
+    @* Issue #139 (P2): scoped HUD skin for the edit dialogs (opt-in via
+       Class="hud-dialog"); after hud-theme.css so it can use the tokens. *@
+    <link rel="stylesheet" href="hud-dialog.css" />
+    @* JetBrains Mono — display font for the tactical HUD. *@
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    @* #269: server-rendered, branded SEO/social metadata + JSON-LD for crawlers
+       and AI engines (the interactive body stays prerender:false). *@
+    <SeoHead />
+    <HeadOutlet />
+</head>
+<body>
+    <Routes @rendermode="new InteractiveServerRenderMode(prerender: false)" />
+
+    @* Custom Blazor reconnect UI (#162): a non-blocking HUD toast instead of the framework's
+       full-screen white modal. Blazor toggles .components-reconnect-{show,hide,failed,rejected}
+       on this element (because the id is present) — app.css styles those states. *@
+    <div id="components-reconnect-modal" class="reconnect-toast" role="status" aria-live="polite">
+        <div class="reconnect-toast__inner">
+            <span class="reconnect-toast__spinner" aria-hidden="true"></span>
+            <span class="reconnect-toast__text reconnect-toast__text--retry">Reconnecting…</span>
+            <span class="reconnect-toast__text reconnect-toast__text--lost">Connection lost</span>
+            <a href="" class="reconnect-toast__reload" onclick="location.reload(); return false;">Reload</a>
+        </div>
+    </div>
+
+    <script src="@Assets["_content/MudBlazor/MudBlazor.min.js"]"></script>
+    <script src="js/hud-drawer.js"></script>
+    @* Issue #241 Phase C: Web Push helpers (used by EnablePushButton). The service
+       worker itself is registered lazily on first opt-in, not here. *@
+    <script src="js/push.js"></script>
+    <script src="_content/SuperStatus.Ui.Shared/js/hud-theme.js"></script>
+    <script src="_framework/blazor.web.js"></script>
+</body>
+</html>

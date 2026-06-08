@@ -1,0 +1,12 @@
+@*
+    BrowserPushPanel — issue #266. A thin HUD card wrapper around EnablePushButton
+    so per-device web-push opt-in (#241 Phase C) gets a first-class home on the
+    console's Alerts tab, next to the email-relay card. All the behaviour lives in
+    EnablePushButton; this only frames it.
+*@
+@using SuperStatus.Web.Components.Hud
+
+<HudPanel Accent="primary" ExtraClass="settings-frame">
+    <HudCallsign Label="ALERTS" Value="Browser notifications" Meta="web push · per device" />
+    <EnablePushButton />
+</HudPanel>

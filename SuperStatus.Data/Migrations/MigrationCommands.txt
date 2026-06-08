@@ -1,0 +1,2 @@
+Add-Migration InitialCreate -context SuperStatusDb -Project SuperStatus.Data -StartupProject SuperStatus.ApiService -o Migrations/SuperStatusDbMigration
+Add-Migration InitialCreateIdentity -Context SuperStatusIdentityDb -Project SuperStatus.Data -StartupProject SuperStatus.Identity -o Migrations/SuperStatusIdentityDbMigration

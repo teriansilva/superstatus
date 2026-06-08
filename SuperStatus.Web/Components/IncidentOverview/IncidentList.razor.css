@@ -1,0 +1,40 @@
+/* IncidentList — tactical incident log (issue #95 Phase 3b). */
+
+.incident-log {
+    max-width: var(--content-max);
+    margin: 0 auto;
+}
+/* #238: in the operator console (.admin-console flex column) the auto margins
+   make this flex item shrink-to-content + center, misaligning it with the
+   full-width sibling panels. In Manage mode stretch to the full column width. */
+.incident-log.is-manage {
+    max-width: none;
+    margin: 0;
+}
+::deep .incident-frame {
+    /* stack the day groups inside one framed panel */
+}
+::deep .incident + .incident-day {
+    margin-top: var(--s-4, 16px);
+}
+::deep .incident-empty {
+    color: var(--text-3);
+    font-size: 12px;
+    margin: var(--s-3, 12px) 0 0;
+}
+
+/* #159 Phase 2: operator manage header + per-incident edit action. */
+::deep .inc-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--s-4, 16px);
+    flex-wrap: wrap;
+    margin-bottom: var(--s-4, 16px);
+}
+::deep .inc-actions {
+    display: inline-flex;
+    gap: var(--s-2, 8px);
+}
+::deep .inc-actions .btn { padding: 6px 10px; font-size: 10px; }
+::deep .inc-actions .btn:focus-visible { outline: 1.5px solid var(--accent); outline-offset: 2px; }

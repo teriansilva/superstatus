@@ -1,0 +1,191 @@
+@*
+    Admin — tactical operator console (issue #95 Phase 4; editing dashboard #159;
+    tabbed restructure #266).
+
+    A calm HUD operations surface and the single place to manage state, organized
+    into in-page tabs:
+      - Overview   — instance-telemetry strip fed by /statuscheck/summary (#104).
+      - Checks     — StatusCheckAdminList: add / edit / run-now / pause-resume (#159).
+      - Incidents  — IncidentList in Manage mode: report / edit incidents (#159).
+      - Alerts     — the outbound-notification scope: email + browser-push delivery
+                     config (#241) plus the webhook (#107) and alert (#253) logs.
+      - Settings   — site branding/footer + AI/automation (#167/#168) + updates (#249).
+
+    Panels stay mounted and toggle via [hidden], so switching tabs never drops a
+    half-typed edit. The public status page (/) is read-only; all editing lives
+    here, behind [Authorize].
+*@
+@page "/admin"
+@using SuperStatus.Configuration
+@using SuperStatus.Data.ViewModels
+@using SuperStatus.Web.Components.Admin
+@using SuperStatus.Web.Components.Hud
+@using SuperStatus.Web.Components.StatusCheckOverview
+@attribute [Authorize]
+@inject StatusApiClient StatusApi
+@inject SettingsApiClient SettingsApi
+@inject IJSRuntime JS
+
+<PageTitle>SuperStatus — Operator Console</PageTitle>
+
+@if (!_loaded)
+{
+    <div class="admin-console">
+        <HudCallsign Label="CONSOLE" Value="Loading…" />
+    </div>
+}
+else if (!_onboarded)
+{
+    @* #181 Phase 3: first-run wizard renders inline until setup is finished. *@
+    <SetupWizard />
+}
+else
+{
+<div class="admin-console">
+    @* Console header + tab bar. The callsign hugs the tab strip; the
+       .admin-console gap keeps a uniform 32px between the panes below. *@
+    <div class="admin-section">
+        <HudCallsign Label="CONSOLE" Value="Operator console" Meta="@_metaLine" />
+        <nav class="console-tabs" role="tablist" aria-label="Console sections">
+            @foreach (var t in Tabs)
+            {
+                <button type="button"
+                        role="tab"
+                        class="console-tab @(_tab == t.Key ? "active" : "")"
+                        aria-selected="@(_tab == t.Key ? "true" : "false")"
+                        @onclick="@(() => _tab = t.Key)">
+                    @t.Label
+                </button>
+            }
+        </nav>
+    </div>
+
+    @* ── Overview ─────────────────────────────────────────────── *@
+    <div class="tab-pane" data-pane="overview" hidden="@(_tab != Tab.Overview)">
+        @if (_showWelcome)
+        {
+            @* #181: one-time post-onboarding welcome card; dismissal is per-browser. *@
+            <HudPanel Accent="primary" ExtraClass="admin-frame welcome-card">
+                <HudCallsign Label="WELCOME" Value="Your status page is live" Meta="first-run" />
+                <p class="admin-note">
+                    This is the operator console — the one place to manage everything.
+                    Use the tabs above to add or edit <strong>checks</strong>, report
+                    <strong>incidents</strong>, configure <strong>alerts</strong>
+                    (email &amp; browser push), and tune <strong>settings</strong>
+                    (branding, AI, updates). The public status page stays read-only.
+                </p>
+                <div style="display:flex;justify-content:flex-end;margin-top:16px">
+                    <button class="btn primary" type="button" @onclick="DismissWelcome">Got it</button>
+                </div>
+            </HudPanel>
+        }
+
+        <HudPanel Accent="primary" ExtraClass="admin-frame">
+            @if (_summary is null)
+            {
+                <HudCallsign Label="INSTANCE" Value="Telemetry unavailable" />
+                <p class="admin-note">Summary telemetry is not reachable right now.</p>
+            }
+            else
+            {
+                <HudCallsign Label="INSTANCE" Value="Operator overview" Meta="@_metaLine" />
+                <HudTelemetryStrip>
+                    <HudChip K="Services" V="@_summary.Services.Total.ToString()" />
+                    <HudChip K="Up" V="@_summary.Services.Up.ToString()" Tone="accent" />
+                    <HudChip K="Degraded" V="@_summary.Services.Degraded.ToString()" Tone="@(_summary.Services.Degraded > 0 ? "degraded" : "")" />
+                    <HudChip K="Down" V="@_summary.Services.Down.ToString()" Tone="@(_summary.Services.Down > 0 ? "critical" : "")" />
+                    <HudChip K="Uptime 30d" V="@UptimeLabel" Tone="accent" />
+                    <HudChip K="Incidents 30d" V="@_summary.Incidents30d.ToString()" />
+                    @* #82: this global value is now the scheduler *tick*, not the
+                       per-check cadence — per-check intervals live on each check. *@
+                    <HudChip K="Scheduler tick" V="@($"{SuperStatusConfig.JobIntervallInSeconds}s")" />
+                </HudTelemetryStrip>
+            }
+        </HudPanel>
+    </div>
+
+    @* ── Checks ───────────────────────────────────────────────── *@
+    <div class="tab-pane" data-pane="checks" hidden="@(_tab != Tab.Checks)">
+        @* #159 Phase 2: the console is the editing surface; the public page (/) is read-only. *@
+        <StatusCheckAdminList />
+    </div>
+
+    @* ── Incidents ────────────────────────────────────────────── *@
+    <div class="tab-pane" data-pane="incidents" hidden="@(_tab != Tab.Incidents)">
+        <SuperStatus.Web.Components.IncidentOverview.IncidentList Manage="true" />
+    </div>
+
+    @* ── Alerts ───────────────────────────────────────────────── *@
+    @* Outbound-notification scope: delivery config (email + browser push) sits
+       with its audit trail (webhook log #107 + alert log #253). *@
+    <div class="tab-pane" data-pane="alerts" hidden="@(_tab != Tab.Alerts)">
+        <EmailAlertsPanel />
+        <BrowserPushPanel />
+        <WebhookLogPanel />
+        <AlertLogPanel />
+    </div>
+
+    @* ── Settings ─────────────────────────────────────────────── *@
+    <div class="tab-pane" data-pane="settings" hidden="@(_tab != Tab.Settings)">
+        <SiteSettingsPanel />
+        <UpdatesPanel />
+    </div>
+</div>
+}
+
+@code {
+    private enum Tab { Overview, Checks, Incidents, Alerts, Settings }
+
+    private static readonly (Tab Key, string Label)[] Tabs =
+    {
+        (Tab.Overview, "Overview"),
+        (Tab.Checks, "Checks"),
+        (Tab.Incidents, "Incidents"),
+        (Tab.Alerts, "Alerts"),
+        (Tab.Settings, "Settings"),
+    };
+
+    private Tab _tab = Tab.Overview;
+    private DashboardSummaryViewModel? _summary;
+    private string _metaLine = "";
+    private bool _loaded;
+    private bool _onboarded;
+    private bool _showWelcome;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // #181: decide wizard-vs-console up front so onboarded installs never
+        // flash the wizard. Only load console telemetry once onboarded.
+        var settings = await SettingsApi.GetSettingsAsync();
+        _onboarded = settings.OnboardedUtc.HasValue;
+        if (_onboarded)
+        {
+            _summary = await StatusApi.GetDashboardSummaryAsync();
+            _metaLine = $"UTC {DateTime.UtcNow:HH:mm:ss}";
+        }
+        _loaded = true;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || !_onboarded) return;
+        try
+        {
+            // One-time welcome card until the operator dismisses it (per-browser).
+            var dismissed = await JS.InvokeAsync<string?>("localStorage.getItem", "hudWelcomeDismissed");
+            if (dismissed != "1") { _showWelcome = true; StateHasChanged(); }
+        }
+        catch (JSException) { /* JS not ready — skip the card */ }
+        catch (InvalidOperationException) { /* prerender / no circuit */ }
+    }
+
+    private async Task DismissWelcome()
+    {
+        _showWelcome = false;
+        try { await JS.InvokeVoidAsync("localStorage.setItem", "hudWelcomeDismissed", "1"); }
+        catch (JSException) { }
+        catch (InvalidOperationException) { }
+    }
+
+    private string UptimeLabel => _summary is null ? "—" : $"{_summary.Uptime30dPct:0.00}%";
+}

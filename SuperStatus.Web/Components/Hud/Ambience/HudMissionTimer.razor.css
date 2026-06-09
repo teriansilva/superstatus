@@ -1,0 +1,31 @@
+/* HudMissionTimer — issue #109 Phase 2. */
+
+.hud-mission-timer {
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--s-2, 8px);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-2);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+.hud-mission-timer .prefix {
+    color: var(--accent);
+    font-weight: 600;
+}
+.hud-mission-timer .value {
+    color: var(--text-1);
+    font-weight: 500;
+}
+.hud-mission-timer .suffix {
+    color: var(--text-3);
+}
+
+@media (max-width: 720px) {
+    /* On narrow screens the suffix is the first to drop so the timer
+       value itself is preserved. */
+    .hud-mission-timer .suffix { display: none; }
+}

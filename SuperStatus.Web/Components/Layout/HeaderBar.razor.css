@@ -1,0 +1,196 @@
+/* HeaderBar — tactical-HUD top bar (issue #95 Phase 2). */
+
+.hud-topbar {
+    grid-area: topbar;
+    display: flex;
+    align-items: center;
+    gap: var(--s-4, 16px);
+    padding: 0 var(--s-5, 24px);
+    height: 56px;
+    background: var(--bg-1);
+    border-bottom: 1px solid var(--line);
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    /* #152 Phase 2: don't let the bar's flex content set a min-content floor
+       wider than the (single-column) grid track on narrow screens. */
+    min-width: 0;
+}
+
+/* Brand badge — logo glyph + wordmark. */
+.brand {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-3, 12px);
+    text-decoration: none;
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-1);
+    /* tighter outline so keyboard focus reads as a HUD reticle, not the
+       browser default rounded ring. */
+    outline-offset: 4px;
+}
+
+.brand .logo {
+    display: inline-block;
+    width: 22px;
+    height: 22px;
+    position: relative;
+    border: 1.5px solid var(--accent);
+    box-shadow: 0 0 8px var(--accent-glow);
+    flex-shrink: 0;
+}
+.brand .logo::before,
+.brand .logo::after {
+    content: "";
+    position: absolute;
+    width: 6px;
+    height: 1.5px;
+    background: var(--accent);
+    top: 50%;
+    transform: translateY(-50%);
+}
+.brand .logo::before { left: -3px; }
+.brand .logo::after  { right: -3px; }
+
+.brand-logo {
+    max-height: 22px;
+    object-fit: contain;
+}
+
+.brand .name {
+    font-weight: 600;
+    font-size: 13px;
+}
+.brand .name em {
+    font-style: normal;
+    color: var(--accent);
+}
+.brand-desc {
+    color: var(--text-3);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    border-left: 1px solid var(--line);
+    padding-left: var(--s-3, 12px);
+    margin-left: var(--s-2, 8px);
+}
+
+/* Tag in topbar has slightly tighter vertical alignment. */
+.hud-topbar > .tag {
+    flex-shrink: 0;
+}
+.hud-topbar .sep {
+    color: var(--text-3);
+}
+
+.topbar-spacer {
+    flex: 1 1 auto;
+}
+
+/* Clock. */
+.clock {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-3, 12px);
+    font-size: 11px;
+    color: var(--text-2);
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-variant-numeric: tabular-nums;
+}
+.clock .led {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--status-up);
+    box-shadow: 0 0 6px var(--status-up);
+    animation: hud-pulse 2.5s ease-in-out infinite;
+}
+
+@keyframes hud-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .clock .led { animation: none; }
+}
+
+/* Right-side icon buttons. */
+.topbar-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2, 8px);
+}
+.hud-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    color: var(--text-2);
+    background: transparent;
+    border: 1px solid transparent;
+    transition: color 100ms ease, border-color 100ms ease, background 100ms ease;
+}
+.hud-icon-btn:hover {
+    color: var(--text-1);
+    border-color: var(--line-strong);
+    background: var(--glass-strong);
+}
+.hud-icon-btn:focus-visible {
+    /* Tactical reticle focus ring — not the default rounded UA outline. */
+    outline: 1.5px solid var(--accent);
+    outline-offset: 2px;
+    color: var(--accent);
+}
+
+/* Hamburger toggle (#152 Phase 1). Hidden on desktop; shown ≤900px where the
+   sidebar collapses to a drawer. 44px = comfortable touch target. */
+.hud-menu-btn {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    margin-left: -8px; /* optical: pull the glyph toward the grid edge */
+    padding: 0;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-1);
+    cursor: pointer;
+}
+.hud-menu-btn:hover {
+    color: var(--text-1);
+    border-color: var(--line-strong);
+    background: var(--glass-strong);
+}
+.hud-menu-btn:focus-visible {
+    outline: 1.5px solid var(--accent);
+    outline-offset: 2px;
+    color: var(--accent);
+}
+
+/* Wrappers so the responsive bar can drop items by priority without ::deep. */
+.topbar-status,
+.topbar-mission {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+/* Topbar priority collapse (#152). At ≤900 the hamburger appears and the
+   lowest-priority chrome (description, mission timer) drops; at ≤600 the clock
+   and status tag drop too, leaving brand + menu + actions uncramped. */
+@media (max-width: 900px) {
+    .hud-menu-btn { display: inline-flex; }
+    .brand-desc { display: none; }
+    .topbar-mission { display: none; }
+}
+@media (max-width: 600px) {
+    .clock { display: none; }
+    .topbar-status { display: none; }
+    /* Tighten the bar so hamburger + brand + actions fit down to 320px. */
+    .hud-topbar { padding: 0 var(--s-3, 12px); gap: var(--s-3, 12px); }
+}

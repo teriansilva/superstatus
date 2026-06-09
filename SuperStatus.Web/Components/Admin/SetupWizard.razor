@@ -1,0 +1,282 @@
+@*
+    SetupWizard — issue #181 Phase 3.
+
+    The Web continuation of first-run setup, rendered inline on /admin while the
+    site is not yet onboarded (OnboardedUtc == null). The admin account + sign-in
+    already happened at the IdP (/Account/Setup); this finishes the job:
+
+      Welcome → Branding (optional) → First status check (optional) → Finish.
+
+    Finish stamps OnboardedUtc (via SettingsApiClient.CompleteOnboardingAsync)
+    and force-reloads /admin, which then renders the real console + welcome card.
+    Every step after Welcome is skippable so the operator is never trapped.
+*@
+@using SuperStatus.Data.ViewModels
+@using SuperStatus.Web.Components.Hud
+@inject SettingsApiClient SettingsApi
+@inject StatusApiClient StatusApi
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
+
+<div class="setup-wizard">
+    <HudCallsign Label="SETUP" Value="@StepTitle" Meta="@($"Step {_step + 1} of {TotalSteps}")" />
+
+    <HudPanel Accent="primary" ExtraClass="setup-frame">
+        @if (_step == 0)
+        {
+            <p class="setup-intro">
+                You're signed in as the administrator. Let's get your status page
+                ready — set your branding and add the first service to monitor.
+                You can skip either step and do it later from the console.
+            </p>
+        }
+        else if (_step == 1)
+        {
+            <div class="setup-grid">
+                <label class="setup-field">
+                    <span class="setup-label">Site title</span>
+                    <input class="setup-input" type="text" maxlength="120" @bind="_branding.Title" placeholder="e.g. Acme Service Status" />
+                </label>
+                <label class="setup-field">
+                    <span class="setup-label">Subtitle</span>
+                    <input class="setup-input" type="text" maxlength="160" @bind="_branding.Subtitle" placeholder="e.g. Service status information" />
+                </label>
+                <label class="setup-field">
+                    <span class="setup-label">Logo URL</span>
+                    <input class="setup-input" type="url" @bind="_branding.LogoUrl" placeholder="https://cdn.example.com/logo.svg" />
+                </label>
+                <div class="setup-field">
+                    <span class="setup-label">Accent colour</span>
+                    <div class="setup-accent">
+                        <input class="setup-swatch" type="color" aria-label="Accent colour" @bind="_branding.AccentColor" />
+                        <input class="setup-input setup-hex" type="text" maxlength="7" aria-label="Accent hex" @bind="_branding.AccentColor" />
+                    </div>
+                </div>
+            </div>
+            <span class="setup-hint">Recolours the HUD chrome only — status colours never change. All optional.</span>
+        }
+        else if (_step == 2)
+        {
+            <div class="setup-grid">
+                <label class="setup-field">
+                    <span class="setup-label">Service name</span>
+                    <input class="setup-input" type="text" maxlength="120" @bind="_check.Title" placeholder="e.g. Public API" />
+                </label>
+                <label class="setup-field">
+                    <span class="setup-label">URL</span>
+                    <input class="setup-input" type="url" @bind="_check.StatusCheckUrl" placeholder="https://api.example.com/health" />
+                </label>
+                <label class="setup-field">
+                    <span class="setup-label">Expected status</span>
+                    <input class="setup-input" type="number" @bind="_check.ExpectedStatusCode" />
+                </label>
+                <label class="setup-field">
+                    <span class="setup-label">Poll interval (s)</span>
+                    <input class="setup-input" type="number" @bind="_check.IntervalSeconds" />
+                </label>
+            </div>
+            <span class="setup-hint">Add one service to start monitoring. Leave blank to skip — you can add checks anytime.</span>
+        }
+        else if (_step == 3)
+        {
+            @* #168: optional AI / automation step. Off by default and fully
+               skippable — the same controls live on the /admin settings panel. *@
+            <label class="setup-check">
+                <input type="checkbox" @bind="_branding.AiEnabled" />
+                <span>Auto-draft incidents with AI when a service is down for a while</span>
+            </label>
+            <div class="setup-grid">
+                <label class="setup-field">
+                    <span class="setup-label">Inference base URL</span>
+                    <input class="setup-input" type="url" @bind="_branding.AiBaseUrl" placeholder="https://gateway.example.com/v1" />
+                </label>
+                <label class="setup-field">
+                    <span class="setup-label">Model</span>
+                    <input class="setup-input" type="text" maxlength="120" @bind="_branding.AiModel" placeholder="e.g. gpt-4o-mini" />
+                </label>
+                <label class="setup-field">
+                    <span class="setup-label">API key</span>
+                    <input class="setup-input" type="password" autocomplete="new-password" @bind="_branding.AiApiKey" placeholder="optional" />
+                </label>
+                <label class="setup-field">
+                    <span class="setup-label">Downtime threshold (min)</span>
+                    <input class="setup-input" type="number" min="1" max="1440" @bind="_branding.AutoIncidentThresholdMinutes" />
+                </label>
+            </div>
+            <span class="setup-hint">OpenAI-compatible endpoint. Each service still opts in individually from its edit dialog. Optional — skip to configure later. Falls back to a templated incident if the model is unreachable.</span>
+        }
+        else if (_step == 4)
+        {
+            @* #241 Phase B: optional email-alert quick-start. The full config (auth
+               details, STARTTLS, test send) lives on /admin settings. Skippable. *@
+            <span class="setup-hint">Send email when a service goes down. Set up the relay here, or later from the console. Each service still opts into email alerts from its edit dialog.</span>
+            <div class="setup-grid">
+                <label class="setup-field">
+                    <span class="setup-label">SMTP host</span>
+                    <input class="setup-input" type="text" maxlength="255" @bind="_branding.SmtpHost" placeholder="smtp.example.com" />
+                </label>
+                <label class="setup-field">
+                    <span class="setup-label">Port</span>
+                    <input class="setup-input" type="number" min="1" max="65535" @bind="_branding.SmtpPort" />
+                </label>
+                <label class="setup-field">
+                    <span class="setup-label">From address</span>
+                    <input class="setup-input" type="email" @bind="_branding.SmtpFromAddress" placeholder="alerts@example.com" />
+                </label>
+                <label class="setup-field">
+                    <span class="setup-label">Username</span>
+                    <input class="setup-input" type="text" autocomplete="username" @bind="_branding.SmtpUsername" placeholder="optional" />
+                </label>
+                <label class="setup-field">
+                    <span class="setup-label">Password</span>
+                    <input class="setup-input" type="password" autocomplete="new-password" @bind="_branding.SmtpPassword" placeholder="optional" />
+                </label>
+                <label class="setup-field">
+                    <span class="setup-label">Default recipients</span>
+                    <input class="setup-input" type="text" @bind="_branding.AlertDefaultRecipients" placeholder="ops@example.com" />
+                </label>
+            </div>
+            <span class="setup-hint">Leave blank to skip. STARTTLS is on by default; tweak auth and run a test send later from the settings panel.</span>
+        }
+        else if (_step == 5)
+        {
+            @* #241 Phase C: optional per-device browser-push opt-in. Fully skippable —
+               the same control lives on the /admin settings panel. *@
+            <span class="setup-hint">Turn on browser notifications for this device, or skip and enable them later from the console. Each service still opts into web-push alerts from its edit dialog.</span>
+            <EnablePushButton />
+        }
+
+        <div class="setup-actions">
+            @if (_step > 0)
+            {
+                <button class="btn" type="button" @onclick="Back" disabled="@_busy">Back</button>
+            }
+            <span class="setup-actions-spacer"></span>
+            @if (_step is 1 or 2 or 3 or 4 or 5)
+            {
+                <button class="btn" type="button" @onclick="Skip" disabled="@_busy">Skip</button>
+            }
+            <button class="btn primary" type="button" @onclick="Next" disabled="@_busy">
+                @(_busy ? "Working…" : NextLabel)
+            </button>
+        </div>
+    </HudPanel>
+</div>
+
+@code {
+    private const int TotalSteps = 6;
+    private int _step;
+    private bool _busy;
+
+    /// <summary>#286: cascaded by SiteSettingsProvider — re-reads + re-applies
+    /// branding so the live header updates the instant the Branding step saves.</summary>
+    [CascadingParameter(Name = "RefreshSiteSettings")] private Func<Task>? RefreshSiteSettings { get; set; }
+
+    // Loaded from current settings so branding edits preserve the other fields
+    // (footer, etc.) when SaveSettings persists the whole row.
+    private SiteSettingsViewModel _branding = new() { AccentColor = "#3fbf6f" };
+    private StatusCheckViewModelBase _check = new()
+    {
+        ExpectedStatusCode = 200,
+        ExpectedResponseTimeInMs = 3000,
+        IntervalSeconds = 30,
+        Enabled = true,
+    };
+
+    private string StepTitle => _step switch
+    {
+        0 => "Welcome",
+        1 => "Branding",
+        2 => "First status check",
+        3 => "AI / Automation",
+        4 => "Email alerts",
+        5 => "Notifications",
+        _ => "Setup",
+    };
+
+    private string NextLabel => _step switch
+    {
+        0 => "Get started",
+        5 => "Finish",
+        _ => "Save & continue",
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        var current = await SettingsApi.GetSettingsAsync();
+        _branding = current;
+        if (string.IsNullOrWhiteSpace(_branding.AccentColor)) _branding.AccentColor = "#3fbf6f";
+    }
+
+    private void Back() => _step = Math.Max(0, _step - 1);
+
+    private async Task Skip()
+    {
+        if (_step == 5) { await Finish(); return; }
+        _step++;
+    }
+
+    private async Task Next()
+    {
+        if (_busy) return;
+        _busy = true;
+        try
+        {
+            switch (_step)
+            {
+                case 0:
+                    _step = 1;
+                    break;
+                case 1:
+                    await SettingsApi.SaveSettingsAsync(_branding);
+                    // #286: apply branding to the live header immediately, so the
+                    // operator sees their logo/title/subtitle/accent the moment they
+                    // press Next — not only after the final reload.
+                    if (RefreshSiteSettings is not null) await RefreshSiteSettings();
+                    _step = 2;
+                    break;
+                case 2:
+                    if (!string.IsNullOrWhiteSpace(_check.Title) && !string.IsNullOrWhiteSpace(_check.StatusCheckUrl))
+                    {
+                        await StatusApi.UpdateOrAddStatusCheck(_check);
+                    }
+                    _step = 3;
+                    break;
+                case 3:
+                    // #168: persist AI / automation (saved with the whole settings
+                    // row). The API preserves any stored key when AiApiKey is blank.
+                    await SettingsApi.SaveSettingsAsync(_branding);
+                    _step = 4;
+                    break;
+                case 4:
+                    // #241 Phase B: persist email/SMTP on its own endpoint (so it's
+                    // not double-written with branding). Blank fields just save empty.
+                    await SettingsApi.SaveSmtpSettingsAsync(_branding);
+                    _step = 5;
+                    break;
+                case 5:
+                    // #241 Phase C: browser-push opt-in is per-device (handled entirely
+                    // by EnablePushButton) — nothing to persist here; just finish.
+                    await Finish();
+                    return;
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Setup step failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task Finish()
+    {
+        await SettingsApi.CompleteOnboardingAsync();
+        Snackbar.Add("Setup complete — welcome aboard.", Severity.Success);
+        // Full reload so SiteSettingsProvider re-reads OnboardedUtc and /admin
+        // renders the real console + welcome card.
+        Nav.NavigateTo("/admin", forceLoad: true);
+    }
+}

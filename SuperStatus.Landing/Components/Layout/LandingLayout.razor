@@ -1,0 +1,33 @@
+@inherits LayoutComponentBase
+@*
+    Public marketing shell — mirrors SuperStatus.Web's .app-public layout
+    (single column, no nav rail; hud-theme.css). Topbar + footer are the
+    landing chrome; the page supplies the <main> content.
+*@
+
+<div class="bg-flow"></div>
+<div class="app app-public">
+
+    <header class="topbar">
+        <a class="brand" href="/" aria-label="SuperStatus home">
+            <span class="logo" aria-hidden="true"></span>
+            <span class="name">SUPER<em>STATUS</em></span>
+        </a>
+        <span class="tag accent"><span class="led up"></span>STATUS PAGE<span class="sep">//</span>SELF-HOST OR HOSTED</span>
+        <div class="lp-actions">
+            <a class="btn" href="#pricing">Want us to host?</a>
+            <a class="btn primary" href="https://status.superstatus.io" target="_blank" rel="noopener">Live demo →</a>
+        </div>
+    </header>
+
+    @Body
+
+    <footer class="lp-foot">
+        <span class="brand"><span class="logo" aria-hidden="true"></span> SUPER<em>STATUS</em></span>
+        <span class="lp-foot-credit">Created with <span class="lp-heart" aria-hidden="true">&#9829;</span><span class="sr-only">love</span> by <a href="https://superstatus.io" target="_blank" rel="noopener">superstatus.io</a></span>
+        <span class="lp-foot-spacer"></span>
+        <a href="https://status.superstatus.io" target="_blank" rel="noopener">Live demo</a>
+        <a href="https://github.com/teriansilva/superstatus" target="_blank" rel="noopener">Source</a>
+    </footer>
+
+</div>

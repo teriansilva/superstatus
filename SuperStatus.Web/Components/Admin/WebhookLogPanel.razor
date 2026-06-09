@@ -1,0 +1,88 @@
+@*
+    Webhook execution-log audit panel (issue #107 Phase 2).
+
+    Operator-only feed of recent outbound webhook attempts — audit-grade
+    truth of what hit the wire. Reads /admin/webhook-log (authorized).
+    A failures-only toggle narrows to actual wire failures. Calm by
+    default (admin surface): no motion, single fetch + manual toggle.
+*@
+@using Humanizer
+@using SuperStatus.Data.Constants
+@using SuperStatus.Data.ViewModels
+@using SuperStatus.Web.Components.Hud
+@inject StatusApiClient StatusApi
+
+<HudPanel ExtraClass="webhook-log-frame">
+    <div class="wl-head">
+        <HudCallsign Label="WEBHOOK LOG" Value="@HeaderValue" Meta="@(_failuresOnly ? "failures only" : "all outcomes")" />
+        <button type="button" class="wl-toggle @(_failuresOnly ? "on" : "")" @onclick="ToggleFailuresAsync">
+            @(_failuresOnly ? "● FAILURES ONLY" : "○ FAILURES ONLY")
+        </button>
+    </div>
+
+    @if (_loading)
+    {
+        <p class="wl-note">Loading…</p>
+    }
+    else if (_log.Count == 0)
+    {
+        <p class="wl-note">No webhook attempts@(_failuresOnly ? " failed" : " recorded") in the retention window.</p>
+    }
+    else
+    {
+        <div class="wl-table">
+            <div class="wl-row wl-h">
+                <span>Outcome</span><span>Check</span><span>When</span><span>Code</span><span>ms</span><span>Target</span>
+            </div>
+            @foreach (var e in _log)
+            {
+                <div class="wl-row">
+                    <span><HudTag Status="@OutcomeLed(e.Outcome)">@e.Outcome.ToString().ToUpperInvariant()</HudTag></span>
+                    <span class="wl-check">@e.CheckTitle</span>
+                    <span class="wl-time">@e.AttemptedUtc.Humanize()</span>
+                    <span class="wl-num">@(e.HttpStatusCode == 0 ? "—" : e.HttpStatusCode.ToString())</span>
+                    <span class="wl-num">@e.ResponseTimeMs</span>
+                    <span class="wl-url" title="@e.TargetUrl">@e.TargetUrl</span>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(e.ErrorMessage))
+                {
+                    <div class="wl-err">@e.ErrorMessage</div>
+                }
+            }
+        </div>
+    }
+</HudPanel>
+
+@code {
+    private List<WebhookExecutionLogViewModel> _log = new();
+    private bool _failuresOnly;
+    private bool _loading = true;
+
+    private string HeaderValue => _loading ? "Loading…" : $"{_log.Count} recent attempt{(_log.Count == 1 ? "" : "s")}";
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _log = await StatusApi.GetWebhookLogAsync(100, _failuresOnly);
+        _loading = false;
+    }
+
+    private async Task ToggleFailuresAsync()
+    {
+        _failuresOnly = !_failuresOnly;
+        await LoadAsync();
+    }
+
+    // Outcome → HUD LED tone. Skipped (throttled, never hit the wire) reads
+    // as unknown/grey, not a failure.
+    private static string OutcomeLed(WebhookOutcome outcome) => outcome switch
+    {
+        WebhookOutcome.Success          => "up",
+        WebhookOutcome.NonSuccess       => "down",
+        WebhookOutcome.Timeout          => "degraded",
+        WebhookOutcome.TransportFailure => "down",
+        _                               => "unknown",   // Skipped
+    };
+}

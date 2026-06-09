@@ -1,0 +1,181 @@
+@using SuperStatus.Configuration
+@using SuperStatus.Data.Constants
+@using SuperStatus.Data.Entities
+@using SuperStatus.Web.Components.Hud
+@using SuperStatus.Web.Components.StatusCheckOverview
+@inject StatusApiClient StatusApi
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+@implements IAsyncDisposable
+
+@*
+    StatusCheckAdminList — operator management table for status checks (#159
+    Phase 2). The editing affordances that used to live on the public dashboard
+    cards (#105) moved here: Add / Edit / Run-now / Pause-Resume, plus Delete
+    (#164, behind a destructive confirm). Read-only status display stays on the
+    public page.
+*@
+<HudPanel ExtraClass="admin-frame">
+    <div class="op-head">
+        <HudCallsign Label="STATUS CHECKS" Value="Manage" />
+        <button class="btn accent" @onclick="AddAsync">+ Add check</button>
+    </div>
+
+    @if (_checks is null)
+    {
+        <p class="op-note">Loading checks…</p>
+    }
+    else if (_checks.Results.Count == 0)
+    {
+        <p class="op-note">No status checks yet. Use “Add check” to create the first one.</p>
+    }
+    else
+    {
+        <div class="op-list">
+            @foreach (var c in _checks.Results)
+            {
+                <div class="op-row @ServiceCardState.LedStatus(c.MostRecentHistoricalStatusCheck?.FailType) @(c.Enabled ? "" : "paused")">
+                    <span class="led" aria-hidden="true"></span>
+                    <div class="title">
+                        <a class="name" href="@($"/status/{c.Id}")">@c.Title</a>
+                        <span class="url">@c.StatusCheckUrl</span>
+                    </div>
+                    <div class="stat">Interval<span class="v">@($"{c.IntervalSeconds}s")</span></div>
+                    <div class="stat">State<span class="v">@(c.Enabled ? "Active" : "Paused")</span></div>
+                    <div class="op-actions">
+                        <button class="btn" disabled="@_busy" @onclick="() => RunNowAsync(c)">Run</button>
+                        <button class="btn" disabled="@_busy" @onclick="() => TogglePauseAsync(c)">@(c.Enabled ? "Pause" : "Resume")</button>
+                        <button class="btn" @onclick="() => EditAsync(c)">Edit</button>
+                        <button class="btn danger" disabled="@_busy" @onclick="() => DeleteAsync(c)">Delete</button>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</HudPanel>
+
+@code {
+    private IPagedResult<StatusCheckViewModel>? _checks;
+    private PeriodicTimer? _timer;
+    private readonly CancellationTokenSource _cts = new();
+    private bool _busy;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        _timer = new PeriodicTimer(TimeSpan.FromSeconds(SuperStatusConfig.StatusCheckViewRefreshIntervalInSeconds));
+        _ = PollAsync();
+    }
+
+    private async Task PollAsync()
+    {
+        try
+        {
+            while (await _timer!.WaitForNextTickAsync(_cts.Token))
+            {
+                await LoadAsync();
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private async Task LoadAsync() => _checks = await StatusApi.GetStatusAsync();
+
+    private async Task AddAsync()
+    {
+        var vm = new StatusCheckViewModel();
+        var options = new DialogOptions { CloseOnEscapeKey = true, CloseButton = true };
+        var parameters = new DialogParameters<StatusCheckEditDialog> { { x => x.StatusCheck, vm } };
+        var dialog = await DialogService.ShowAsync<StatusCheckEditDialog>(vm.Title, parameters, options);
+        if ((await dialog.Result) is { Canceled: false }) await LoadAsync();
+    }
+
+    private async Task EditAsync(StatusCheckViewModel check)
+    {
+        var options = new DialogOptions { CloseOnEscapeKey = true, CloseButton = true };
+        var parameters = new DialogParameters<StatusCheckEditDialog> { { x => x.StatusCheck, check } };
+        var dialog = await DialogService.ShowAsync<StatusCheckEditDialog>(check.Title, parameters, options);
+        if ((await dialog.Result) is { Canceled: false }) await LoadAsync();
+    }
+
+    // #164: confirmed hard delete. The confirm names the check + states that
+    // its history is permanently removed before anything is deleted.
+    private async Task DeleteAsync(StatusCheckViewModel check)
+    {
+        var parameters = new DialogParameters<HudConfirmDialog>
+        {
+            { x => x.Title, $"Delete {check.Title}?" },
+            { x => x.Tag, "Delete check" },
+            { x => x.Message, $"This permanently deletes \"{check.Title}\" and all of its history — status ticks, daily rollups and webhook logs. This cannot be undone." },
+            { x => x.ConfirmText, "Delete" },
+            { x => x.Danger, true },
+        };
+        var options = new DialogOptions { CloseOnEscapeKey = true, CloseButton = true };
+        var dialog = await DialogService.ShowAsync<HudConfirmDialog>($"Delete {check.Title}", parameters, options);
+        if ((await dialog.Result) is not { Canceled: false, Data: true }) return;
+
+        try
+        {
+            var ok = await StatusApi.DeleteStatusCheckAsync(check.Id);
+            Snackbar.Add(ok ? $"Deleted '{check.Title}'." : $"'{check.Title}' no longer exists.",
+                ok ? Severity.Normal : Severity.Warning);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Delete failed for '{check.Title}': {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task RunNowAsync(StatusCheckViewModel check)
+    {
+        if (_busy) return;
+        _busy = true;
+        try
+        {
+            var result = await StatusApi.RunCheckNowAsync(check.Id);
+            if (result is null)
+                Snackbar.Add($"'{check.Title}' no longer exists.", Severity.Warning);
+            else
+                Snackbar.Add($"Ran '{check.Title}' — {(result.CheckFailed ? "failed" : $"HTTP {result.HttpStatusCode}, {result.ResponseTimeInMs} ms")}.", Severity.Normal);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Run failed for '{check.Title}': {ex.Message}", Severity.Error);
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task TogglePauseAsync(StatusCheckViewModel check)
+    {
+        if (_busy) return;
+        _busy = true;
+        bool target = !check.Enabled;
+        try
+        {
+            var newState = await StatusApi.SetEnabledAsync(check.Id, target);
+            if (newState is null)
+                Snackbar.Add($"'{check.Title}' no longer exists.", Severity.Warning);
+            else
+            {
+                check.Enabled = newState.Value;
+                Snackbar.Add($"'{check.Title}' {(newState.Value ? "resumed" : "paused")}.", Severity.Normal);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Could not change '{check.Title}': {ex.Message}", Severity.Error);
+        }
+        finally { _busy = false; }
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        _cts.Cancel();
+        _timer?.Dispose();
+        _cts.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}

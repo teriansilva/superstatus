@@ -1,0 +1,353 @@
+@using Microsoft.AspNetCore.Components.Authorization
+@using SuperStatus.Data.Constants
+@using SuperStatus.Data.ViewModels
+@using SuperStatus.Web.Components.Admin
+
+@inject StatusApiClient StatusApi
+@inject IDialogService DialogService
+
+@*
+    StatusCheckEditDialog — rebuilt for #291 Phase D / #293 Phase C around the
+    linked entities. Four sections (per the approved mockup):
+
+      BASICS        — title / URL / description / logo / enabled.
+      MONITORING    — expected status + cadence + the SLA picker (single-select
+                      + "+ New…" quick-create). The legacy "Expected Response
+                      Time (ms)" field is GONE — the SLA defines the slow
+                      threshold and the day-color tolerance.
+      NOTIFICATIONS — webhook + alert-profile chip pickers ("+ New…" opens the
+                      respective edit dialog inline; on save the picker
+                      refreshes and auto-selects the new entity) and the
+                      compact per-check trigger row (fails / down-minutes /
+                      throttle / recovery — these stay per-check).
+      AUTOMATION    — the AI auto-incident opt-in (unchanged).
+
+    Saves post slaId + webhookIds[] + alertProfileIds[] (the id-array path —
+    the API rejects legacy embedded fields with 422 since Phase D). Validation
+    blocks save with a message that NAMES the offending section.
+*@
+<MudDialog Class="hud-dialog">
+    <TitleContent>
+        <div class="hud-dialog-head">
+            <span class="tag accent"><span class="led up"></span>@(StatusCheck.Id > 0 ? "EDIT CHECK" : "ADD CHECK")</span>
+            <span class="hud-dialog-name">@(string.IsNullOrWhiteSpace(StatusCheck.Title) ? "New status check" : StatusCheck.Title)</span>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        <MudForm @ref="_form">
+
+            <MudGrid>
+                <MudItem xs="12">
+                    <div class="hud-dialog-section">Basics</div>
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField T="string"
+                                  @bind-Value="StatusCheck.Title"
+                                  Label="Title"
+                                  Class="chk-title"
+                                  For="@(()=>StatusCheck.Title)"
+                                  Required="true"
+                                  RequiredError="Title is required." />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField T="string"
+                                  @bind-Value="StatusCheck.StatusCheckUrl"
+                                  Label="Check URL"
+                                  Class="chk-url"
+                                  For="@(()=>StatusCheck.StatusCheckUrl)"
+                                  Required="true"
+                                  RequiredError="Check URL is required."
+                                  InputType="InputType.Url"
+                                  Placeholder="https://service/health" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField T="string"
+                                  @bind-Value="StatusCheck.Description"
+                                  Label="Description"
+                                  For="@(()=>StatusCheck.Description)"
+                                  Lines="2"
+                                  Placeholder="optional · one line, expands" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField T="string"
+                                  @bind-Value="StatusCheck.ServiceLogoUrl"
+                                  Label="Logo URL"
+                                  For="@(()=>StatusCheck.ServiceLogoUrl)"
+                                  InputType="InputType.Url"
+                                  Placeholder="optional" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudCheckBox T="bool" @bind-Value="StatusCheck.Enabled" Color="Color.Primary" Label="Enabled" />
+                </MudItem>
+            </MudGrid>
+
+            <MudGrid>
+                <MudItem xs="12">
+                    <div class="hud-dialog-section">Monitoring</div>
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    <MudSelect T="int"
+                               @bind-Value="StatusCheck.ExpectedStatusCode"
+                               Label="Expect status"
+                               Class="chk-status"
+                               Dense="true">
+                        @foreach (var statusCode in CommonSuccessStatusCodes)
+                        {
+                            <MudSelectItem T="int" Value="statusCode.Code"><span>@statusCode.Code - @statusCode.Description</span></MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    @* Issue #82: per-check polling cadence. Server clamps to
+                       5–3600 s on save; this Min/Max is the advisory client guard. *@
+                    <MudNumericField T="int"
+                                     @bind-Value="StatusCheck.IntervalSeconds"
+                                     Label="Every (s)"
+                                     Class="chk-interval"
+                                     Min="5"
+                                     Max="3600"
+                                     Adornment="Adornment.End"
+                                     AdornmentIcon="@Icons.Material.Filled.Timer"
+                                     HelperText="How often this check runs (5–3600 s)." />
+                </MudItem>
+                <MudItem xs="12">
+                    <div class="picker-row">
+                        <MudSelect T="long?"
+                                   @bind-Value="_slaId"
+                                   Label="SLA"
+                                   Class="chk-sla"
+                                   Dense="true">
+                            @foreach (var sla in _slas)
+                            {
+                                <MudSelectItem T="long?" Value="@((long?)sla.Id)">@sla.Name@(sla.IsDefault ? " ★" : "")</MudSelectItem>
+                            }
+                        </MudSelect>
+                        <button type="button" class="picker-add chk-sla-new" @onclick="NewSlaAsync">+ New…</button>
+                    </div>
+                    <p class="hud-dialog-helper">defines slow threshold + day color tolerance · manage on Admin → Checks</p>
+                </MudItem>
+            </MudGrid>
+
+            <MudGrid>
+                <MudItem xs="12">
+                    <div class="hud-dialog-section">Notifications</div>
+                </MudItem>
+                <MudItem xs="12">
+                    <div class="picker-chips chk-webhooks">
+                        <span class="picker-label">Webhooks</span>
+                        @foreach (var w in _webhooks)
+                        {
+                            <button type="button"
+                                    class="pick-chip @(_webhookIds.Contains(w.Id) ? "on" : "")"
+                                    @onclick="() => ToggleWebhook(w.Id)">
+                                @w.Name@(_webhookIds.Contains(w.Id) ? " ×" : "")
+                            </button>
+                        }
+                        <button type="button" class="picker-add chk-webhook-new" @onclick="NewWebhookAsync">+ New…</button>
+                    </div>
+                    <p class="hud-dialog-helper">fire on failure · manage on Admin → Webhooks</p>
+                </MudItem>
+                <MudItem xs="12">
+                    <div class="picker-chips chk-profiles">
+                        <span class="picker-label">Alert profiles</span>
+                        @foreach (var p in _profiles)
+                        {
+                            <button type="button"
+                                    class="pick-chip @(_profileIds.Contains(p.Id) ? "on" : "")"
+                                    @onclick="() => ToggleProfile(p.Id)">
+                                @p.Name@(_profileIds.Contains(p.Id) ? " ×" : "")
+                            </button>
+                        }
+                        <button type="button" class="picker-add chk-profile-new" @onclick="NewProfileAsync">+ New…</button>
+                    </div>
+                    <p class="hud-dialog-helper">who gets notified · manage on Admin → Alerts</p>
+                </MudItem>
+                <MudItem xs="12">
+                    @* #241/#253: the per-check trigger rules stay embedded —
+                       they describe THIS check's outage, not a reusable target. *@
+                    <div class="trigger-row chk-trigger">
+                        <span>after</span>
+                        <MudNumericField T="int" @bind-Value="StatusCheck.AlertOnFailureThreshold" Class="trigger-num chk-fails" Min="0" Margin="Margin.Dense" HideSpinButtons="true" />
+                        <span>fails</span>
+                        <span class="trigger-dim">·</span>
+                        <span>or down ≥</span>
+                        <MudNumericField T="int" @bind-Value="StatusCheck.AlertOnOutageMinutes" Class="trigger-num chk-downmin" Min="0" Margin="Margin.Dense" HideSpinButtons="true" />
+                        <span>min</span>
+                        <span class="trigger-dim">·</span>
+                        <span>throttle</span>
+                        <MudNumericField T="int" @bind-Value="StatusCheck.AlertThrottleMinutes" Class="trigger-num chk-throttle" Min="0" Margin="Margin.Dense" HideSpinButtons="true" />
+                        <span>min</span>
+                    </div>
+                    <MudCheckBox T="bool" @bind-Value="StatusCheck.AlertOnRecovery" Color="Color.Primary" Label="also on recovery" />
+                    <p class="hud-dialog-helper">0 = off. Applies to every linked webhook/profile of this check.</p>
+                </MudItem>
+            </MudGrid>
+
+            @* Issue #168: per-check opt-in for AI-authored incidents on sustained
+               downtime. Only fires when the instance's AI settings are enabled. *@
+            <MudGrid>
+                <MudItem xs="12">
+                    <div class="hud-dialog-section">Automation</div>
+                </MudItem>
+                <MudItem xs="12">
+                    <MudCheckBox T="bool" @bind-Value="StatusCheck.AutoIncidentEnabled" Color="Color.Primary"
+                                 Label="Auto-draft an incident if this service stays down" />
+                </MudItem>
+            </MudGrid>
+
+            @if (_validationError is not null)
+            {
+                <p class="hud-dialog-error chk-validation">@_validationError</p>
+            }
+
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Variant="Variant.Outlined" Color="Color.Secondary">Cancel</MudButton>
+        <MudButton OnClick="SubmitAsync" Disabled="@_submitting" Color="Color.Primary" Variant="Variant.Filled">
+            @(!_submitting ? "Save" : "Saving...")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public required StatusCheckViewModelBase StatusCheck { get; set; }
+
+    private MudForm? _form;
+    private bool _submitting;
+    private string? _validationError;
+
+    private List<SlaViewModel> _slas = new();
+    private List<WebhookViewModel> _webhooks = new();
+    private List<AlertProfileViewModel> _profiles = new();
+
+    private long? _slaId;
+    private HashSet<long> _webhookIds = new();
+    private HashSet<long> _profileIds = new();
+
+    // Common 2xx success status codes
+    private readonly (int Code, string Description)[] CommonSuccessStatusCodes =
+    [
+        (200, "OK"),
+        (201, "Created"),
+        (202, "Accepted"),
+        (204, "No Content"),
+        (206, "Partial Content")
+    ];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _slas = await StatusApi.GetSlasAsync();
+        _webhooks = await StatusApi.GetWebhooksAsync();
+        _profiles = await StatusApi.GetAlertProfilesAsync();
+
+        // Selection state seeds from the read-only round-trip ids; a new check
+        // preselects the instance default SLA.
+        _slaId = StatusCheck.LinkedSlaId ?? _slas.FirstOrDefault(s => s.IsDefault)?.Id;
+        _webhookIds = StatusCheck.LinkedWebhookIds.ToHashSet();
+        _profileIds = StatusCheck.LinkedAlertProfileIds.ToHashSet();
+    }
+
+    private void ToggleWebhook(long id)
+    {
+        if (!_webhookIds.Remove(id)) _webhookIds.Add(id);
+    }
+
+    private void ToggleProfile(long id)
+    {
+        if (!_profileIds.Remove(id)) _profileIds.Add(id);
+    }
+
+    // ---- quick-create ("+ New…"): open the respective edit dialog inline; on
+    // save the picker refreshes and auto-selects the new entity. ----
+
+    private async Task NewSlaAsync()
+    {
+        var parameters = new DialogParameters<SlaEditDialog> { { x => x.Sla, new SlaViewModel() } };
+        var dialog = await DialogService.ShowAsync<SlaEditDialog>("Add SLA", parameters, QuickCreateOptions);
+        if ((await dialog.Result) is { Canceled: false, Data: SlaViewModel saved })
+        {
+            _slas = await StatusApi.GetSlasAsync();
+            _slaId = saved.Id;
+            StateHasChanged();
+        }
+    }
+
+    private async Task NewWebhookAsync()
+    {
+        var parameters = new DialogParameters<WebhookEditDialog> { { x => x.Webhook, new WebhookViewModel() } };
+        var dialog = await DialogService.ShowAsync<WebhookEditDialog>("Add webhook", parameters, QuickCreateOptions);
+        if ((await dialog.Result) is { Canceled: false, Data: WebhookViewModel saved })
+        {
+            _webhooks = await StatusApi.GetWebhooksAsync();
+            _webhookIds.Add(saved.Id);
+            StateHasChanged();
+        }
+    }
+
+    private async Task NewProfileAsync()
+    {
+        var parameters = new DialogParameters<AlertProfileEditDialog> { { x => x.Profile, new AlertProfileViewModel() } };
+        var dialog = await DialogService.ShowAsync<AlertProfileEditDialog>("Add alert profile", parameters, QuickCreateOptions);
+        if ((await dialog.Result) is { Canceled: false, Data: AlertProfileViewModel saved })
+        {
+            _profiles = await StatusApi.GetAlertProfilesAsync();
+            _profileIds.Add(saved.Id);
+            StateHasChanged();
+        }
+    }
+
+    private static DialogOptions QuickCreateOptions => new() { CloseOnEscapeKey = true, CloseButton = true };
+
+    // ---- save ----
+
+    /// <summary>Client-side validation that NAMES the offending section, so the
+    /// operator knows where to scroll in the long dialog. Public + static so
+    /// the bUnit suite can exercise the Monitoring/Notifications branches that
+    /// the clamping numeric fields make unreachable through the UI
+    /// (defense-in-depth against programmatic VM mutation).</summary>
+    public static string? ValidateSections(StatusCheckViewModelBase check)
+    {
+        if (string.IsNullOrWhiteSpace(check.Title) || string.IsNullOrWhiteSpace(check.StatusCheckUrl))
+            return "Basics: a title and a check URL are required.";
+        if (check.IntervalSeconds is < 5 or > 3600)
+            return "Monitoring: the polling interval must be between 5 and 3600 seconds.";
+        if (check.AlertOnFailureThreshold < 0 || check.AlertOnOutageMinutes < 0 || check.AlertThrottleMinutes < 0)
+            return "Notifications: trigger values can't be negative.";
+        return null;
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (_form is null) return;
+        await _form.Validate();
+
+        _validationError = ValidateSections(StatusCheck);
+        if (_validationError is not null || !_form.IsValid) return;
+
+        // The id-array path — NO legacy embedded fields (the API 422s them).
+        StatusCheck.SlaId = _slaId;
+        StatusCheck.WebhookIds = _webhookIds.ToList();
+        StatusCheck.AlertProfileIds = _profileIds.ToList();
+
+        _submitting = true;
+        try
+        {
+            await StatusApi.UpdateOrAddStatusCheck(StatusCheck);
+            MudDialog.Close(DialogResult.Ok(StatusCheck));
+        }
+        catch (Exception ex)
+        {
+            // Surfaces the API's 422 (unknown ids, rejected legacy payloads).
+            _validationError = $"Save failed: {ex.Message}";
+        }
+        finally
+        {
+            _submitting = false;
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+}

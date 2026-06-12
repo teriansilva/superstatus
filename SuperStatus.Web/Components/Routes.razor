@@ -1,0 +1,19 @@
+@using Microsoft.AspNetCore.Components.Authorization
+@using SuperStatus.Web.Components.Layout
+
+@* Issue #181: gate routes with AuthorizeRouteView so [Authorize] pages (e.g.
+   /admin) actually challenge anonymous users instead of rendering their shell.
+   CascadingAuthenticationState lives here (above the Router) so the auth state
+   reaches AuthorizeRouteView; MainLayout no longer wraps it. *@
+<CascadingAuthenticationState>
+    <Router AppAssembly="@typeof(Program).Assembly">
+        <Found Context="routeData">
+            <AuthorizeRouteView RouteData="@routeData" DefaultLayout="@typeof(Layout.MainLayout)">
+                <NotAuthorized>
+                    <RedirectToLogin />
+                </NotAuthorized>
+            </AuthorizeRouteView>
+            <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+        </Found>
+    </Router>
+</CascadingAuthenticationState>

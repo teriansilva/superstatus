@@ -1,0 +1,180 @@
+@using SuperStatus.Data.ViewModels
+@using SuperStatus.Web.Components.Hud
+@inject StatusApiClient StatusApi
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+@*
+    SlaListPanel — operator management table for SLA targets (#293 Phase C).
+    Lives on the console's own SLAs tab (#302; was under the Checks list).
+    Add / Edit / Set default / Delete; the default
+    row is starred and undeletable (422 surfaced), deleting a linked SLA is
+    blocked by the API (409) and rendered through the shared
+    LinkedDeleteBlockedDialog — relinking happens from each check's dialog.
+*@
+<HudPanel ExtraClass="admin-frame sla-list-frame">
+    <div class="sla-head">
+        <HudCallsign Label="SLAS" Value="Service-level definitions" />
+        @if (_slas is { Count: > 0 })
+        {
+            <button class="btn accent" @onclick="AddAsync">+ Add SLA</button>
+        }
+    </div>
+
+    @if (_slas is null)
+    {
+        <p class="sla-note">Loading…</p>
+    }
+    else if (_slas.Count == 0)
+    {
+        <div class="sla-empty">
+            <div class="sla-empty-glyph" aria-hidden="true">[ — ]</div>
+            <p class="sla-empty-copy">No SLAs yet — the default is seeded at startup; create one to give checks their own day-color tolerance.</p>
+            <button class="btn accent" @onclick="AddAsync">+ Add SLA</button>
+        </div>
+    }
+    else
+    {
+        <div class="sla-table">
+            <div class="sla-row sla-h">
+                <span>Name</span><span class="num">Target</span><span class="num">Critical</span><span class="num">Slow ms</span><span class="num">Used by</span><span></span>
+            </div>
+            @foreach (var s in _slas)
+            {
+                <div class="sla-row">
+                    <span class="sla-name">@s.Name @if (s.IsDefault) { <span class="sla-star" title="instance default — assigned to new checks">★</span> }</span>
+                    <span class="num">@($"{s.TargetUptimePercent:0.#}%")</span>
+                    <span class="num">@($"{s.CriticalUptimePercent:0.#}%")</span>
+                    <span class="num">@s.SlowThresholdMs</span>
+                    <span class="num sla-used">@s.Usage.UsedByCount @(s.Usage.UsedByCount == 1 ? "check" : "checks")</span>
+                    <span class="sla-actions">
+                        <button type="button" class="sla-link" @onclick="() => EditAsync(s)">Edit</button>
+                        @if (!s.IsDefault)
+                        {
+                            <span class="sla-sep">·</span>
+                            <button type="button" class="sla-link" disabled="@_busy" @onclick="() => SetDefaultAsync(s)">Set default</button>
+                        }
+                        <span class="sla-sep">·</span>
+                        <button type="button" class="sla-link danger" disabled="@_busy" @onclick="() => DeleteAsync(s)">Delete</button>
+                    </span>
+                </div>
+            }
+        </div>
+        <p class="sla-note">
+            ★ default — assigned to new checks. Exactly one default at all times. Target = day
+            is green at/above; Critical = day is red below (orange between); Slow ms = a tick
+            above this counts as slow. Delete is blocked while linked (lists the linked checks).
+        </p>
+    }
+</HudPanel>
+
+@code {
+    private List<SlaViewModel>? _slas;
+    private bool _busy;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync() => _slas = await StatusApi.GetSlasAsync();
+
+    private async Task AddAsync()
+    {
+        var vm = new SlaViewModel();
+        var options = new DialogOptions { CloseOnEscapeKey = true, CloseButton = true };
+        var parameters = new DialogParameters<SlaEditDialog> { { x => x.Sla, vm } };
+        var dialog = await DialogService.ShowAsync<SlaEditDialog>("Add SLA", parameters, options);
+        if ((await dialog.Result) is { Canceled: false }) await LoadAsync();
+    }
+
+    private async Task EditAsync(SlaViewModel sla)
+    {
+        // Edit a copy so a cancelled dialog can't leave half-typed values on the row.
+        var vm = new SlaViewModel
+        {
+            Id = sla.Id,
+            Name = sla.Name,
+            TargetUptimePercent = sla.TargetUptimePercent,
+            CriticalUptimePercent = sla.CriticalUptimePercent,
+            SlowThresholdMs = sla.SlowThresholdMs,
+            IsDefault = sla.IsDefault,
+            CreatedUtc = sla.CreatedUtc,
+            Usage = sla.Usage,
+        };
+        var options = new DialogOptions { CloseOnEscapeKey = true, CloseButton = true };
+        var parameters = new DialogParameters<SlaEditDialog> { { x => x.Sla, vm } };
+        var dialog = await DialogService.ShowAsync<SlaEditDialog>(sla.Name, parameters, options);
+        if ((await dialog.Result) is { Canceled: false }) await LoadAsync();
+    }
+
+    private async Task SetDefaultAsync(SlaViewModel sla)
+    {
+        if (_busy) return;
+        _busy = true;
+        try
+        {
+            bool found = await StatusApi.SetDefaultSlaAsync(sla.Id);
+            if (!found)
+            {
+                Snackbar.Add($"SLA '{sla.Name}' no longer exists.", Severity.Warning);
+            }
+            else
+            {
+                Snackbar.Add($"'{sla.Name}' is now the default SLA — new checks link to it.", Severity.Normal);
+            }
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Could not make '{sla.Name}' the default: {ex.Message}", Severity.Error);
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteAsync(SlaViewModel sla)
+    {
+        if (_busy) return;
+
+        // Unlinked non-default → the usual destructive confirm. Linked or
+        // default → go straight to the API: 409 renders the shared blocked
+        // dialog; 422 (default) surfaces as the error message.
+        if (sla.Usage.UsedByCount == 0 && !sla.IsDefault)
+        {
+            var parameters = new DialogParameters<HudConfirmDialog>
+            {
+                { x => x.Title, $"Delete {sla.Name}?" },
+                { x => x.Tag, "Delete SLA" },
+                { x => x.Message, $"This permanently deletes the SLA \"{sla.Name}\". It is not linked to any checks. This cannot be undone." },
+                { x => x.ConfirmText, "Delete" },
+                { x => x.Danger, true },
+            };
+            var options = new DialogOptions { CloseOnEscapeKey = true, CloseButton = true };
+            var dialog = await DialogService.ShowAsync<HudConfirmDialog>($"Delete {sla.Name}", parameters, options);
+            if ((await dialog.Result) is not { Canceled: false, Data: true }) return;
+        }
+
+        try
+        {
+            var result = await StatusApi.DeleteSlaAsync(sla.Id);
+            if (result.BlockedBy is not null)
+            {
+                var parameters = new DialogParameters<LinkedDeleteBlockedDialog>
+                {
+                    { x => x.EntityLabel, "SLA" },
+                    { x => x.Name, sla.Name },
+                    { x => x.Usage, result.BlockedBy },
+                };
+                var options = new DialogOptions { CloseOnEscapeKey = true, CloseButton = true };
+                await DialogService.ShowAsync<LinkedDeleteBlockedDialog>($"Delete blocked", parameters, options);
+                return;
+            }
+            Snackbar.Add(result.Deleted ? $"Deleted SLA '{sla.Name}'." : $"SLA '{sla.Name}' no longer exists.",
+                result.Deleted ? Severity.Normal : Severity.Warning);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            // Includes the API's 422 for the default SLA ("make another SLA the
+            // default first").
+            Snackbar.Add($"Delete failed for '{sla.Name}': {ex.Message}", Severity.Error);
+        }
+    }
+}

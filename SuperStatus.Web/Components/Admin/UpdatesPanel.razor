@@ -1,0 +1,202 @@
+@*
+    Issue #249 (epic #248): operator-console Updates panel. Shows the running
+    version vs the latest release, a guided upgrade command, last-checked time,
+    and a "check now" action. Read-only — never applies an update (that's the
+    opt-in Watchtower overlay, Phase 2). Calm admin styling per docs/design-system.md:
+    no motion, semantic status colours, honest empty/error states. Mockup:
+    mockups/updates-panel.html.
+*@
+@using SuperStatus.Data.ViewModels
+@using SuperStatus.Web.Components.Hud
+@inject UpdatesApiClient UpdatesApi
+@inject ISnackbar Snackbar
+@inject IJSRuntime JS
+
+<div class="admin-section">
+    <HudPanel ExtraClass="updates-frame">
+        <HudCallsign Label="UPDATES" Value="Version & releases" Meta="@MetaLine" />
+
+        @if (!_loaded)
+        {
+            <p class="admin-note">Checking for updates…</p>
+        }
+        else if (_status is null)
+        {
+            @* Loaded, but the update service couldn't be reached — honest, retryable. *@
+            <span class="up-tag fail"><span class="up-dot"></span>Service unavailable</span>
+            <p class="up-err">Couldn't reach the update service. It may still be starting up.</p>
+            <div class="up-row">
+                <button type="button" class="btn" disabled="@_checking" @onclick="Reload">
+                    @(_checking ? "Retrying…" : "Retry")
+                </button>
+            </div>
+        }
+        else
+        {
+            <span class="up-tag @TagClass"><span class="up-dot"></span>@TagLabel</span>
+
+            <div class="up-kv">
+                <span class="k">Running</span>
+                <span class="v accent">@DisplayVersion(_status.CurrentVersion)</span>
+
+                @if (!IsEdge)
+                {
+                    <span class="k">Latest</span>
+                    <span class="v @(IsAvailable ? "warn" : "")">
+                        @if (_status.LatestVersion is { Length: > 0 })
+                        {
+                            @DisplayVersion(_status.LatestVersion)
+                            @if (_status.LastCheckError is not null) { <span class="muted"> (last known)</span> }
+                            @if (_status.LatestNotesUrl is { Length: > 0 } notes)
+                            {
+                                <span> · <a href="@notes" target="_blank" rel="noopener">release notes ↗</a></span>
+                            }
+                        }
+                        else
+                        {
+                            <span class="muted">—</span>
+                        }
+                    </span>
+                }
+
+                <span class="k">Channel</span>
+                <span class="v muted">@_status.Channel</span>
+            </div>
+
+            @if (_status.LastCheckError is { Length: > 0 } err)
+            {
+                <p class="up-err">Couldn't reach the release feed: @err</p>
+            }
+
+            @if (IsAvailable)
+            {
+                <div class="up-cmd">
+                    <span class="p">$</span>
+                    <code @ref="_cmdRef">@_status.UpgradeCommand</code>
+                    <button type="button" class="up-copy" @onclick="CopyCommand">Copy</button>
+                </div>
+                <p class="admin-note">Run this on the host to update. @(_status.AutoUpdateActive ? "Automatic updates are on — it will also be applied tonight." : "")</p>
+            }
+
+            <div class="up-row">
+                <button type="button" class="btn" disabled="@_checking" @onclick="CheckNow">
+                    @(_checking ? "Checking…" : "Check now")
+                </button>
+                <span class="up-auto @(_status.AutoUpdateActive ? "" : "off")">
+                    Auto-update <b>@(_status.AutoUpdateActive ? "on" : "off")</b>@(_status.AutoUpdateActive ? " · Watchtower" : "")
+                </span>
+            </div>
+        }
+    </HudPanel>
+</div>
+
+@code {
+    private UpdateStatusViewModel? _status;
+    private bool _loaded;
+    private bool _checking;
+    private ElementReference _cmdRef;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _status = await UpdatesApi.GetAsync();
+        _loaded = true;
+    }
+
+    // Re-fetch the status (used by the "Retry" action when the API was unreachable).
+    private async Task Reload()
+    {
+        if (_checking) return;
+        _checking = true;
+        try
+        {
+            _status = await UpdatesApi.GetAsync();
+        }
+        finally
+        {
+            _checking = false;
+        }
+    }
+
+    private bool IsEdge => _status?.Status == UpdateStatusViewModel.StatusEdge;
+    private bool IsAvailable => _status?.Status == UpdateStatusViewModel.StatusUpdateAvailable;
+
+    // The "couldn't check" overlay takes visual priority over the (stale) verdict.
+    private string TagClass => _status switch
+    {
+        null => "",
+        { Channel: "edge" } => "dev",
+        { LastCheckError: { Length: > 0 } } => "fail",
+        { Status: UpdateStatusViewModel.StatusUpdateAvailable } => "avail",
+        { Status: UpdateStatusViewModel.StatusUpToDate } => "up",
+        _ => "dev",
+    };
+
+    private string TagLabel => _status switch
+    {
+        null => "",
+        { Channel: "edge" } => "Development build",
+        { LastCheckError: { Length: > 0 } } => "Couldn't check",
+        { Status: UpdateStatusViewModel.StatusUpdateAvailable } => "Update available",
+        { Status: UpdateStatusViewModel.StatusUpToDate } => "Up to date",
+        _ => "Not checked yet",
+    };
+
+    private string MetaLine => _status?.LastCheckedUtc is { } t
+        ? $"checked {Ago(t)}"
+        : "not checked yet";
+
+    private static string DisplayVersion(string v)
+        => string.IsNullOrWhiteSpace(v) || v == "edge" ? (v ?? string.Empty) : $"v{v}";
+
+    private static string Ago(DateTime utc)
+    {
+        var d = DateTime.UtcNow - utc;
+        if (d < TimeSpan.FromMinutes(1)) return "just now";
+        if (d < TimeSpan.FromHours(1)) return $"{(int)d.TotalMinutes}m ago";
+        if (d < TimeSpan.FromDays(1)) return $"{(int)d.TotalHours}h ago";
+        return $"{(int)d.TotalDays}d ago";
+    }
+
+    private async Task CheckNow()
+    {
+        if (_checking) return;
+        _checking = true;
+        try
+        {
+            var fresh = await UpdatesApi.CheckNowAsync();
+            if (fresh is not null)
+            {
+                _status = fresh;
+                Snackbar.Add(
+                    fresh.Status == UpdateStatusViewModel.StatusUpdateAvailable
+                        ? $"Update available: v{fresh.LatestVersion}"
+                        : fresh.LastCheckError is { Length: > 0 }
+                            ? "Couldn't reach the release feed."
+                            : "You're on the latest release.",
+                    fresh.LastCheckError is { Length: > 0 } ? Severity.Warning : Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add("Couldn't run the update check.", Severity.Error);
+            }
+        }
+        finally
+        {
+            _checking = false;
+        }
+    }
+
+    private async Task CopyCommand()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _status?.UpgradeCommand ?? string.Empty);
+            Snackbar.Add("Command copied.", Severity.Success);
+        }
+        catch
+        {
+            // Clipboard API unavailable (e.g. insecure context) — the command is
+            // selectable in the panel as a fallback.
+        }
+    }
+}

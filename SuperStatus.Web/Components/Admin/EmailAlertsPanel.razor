@@ -1,0 +1,156 @@
+@*
+    EmailAlertsPanel — issue #266 (extracted from SiteSettingsPanel; logic is #241
+    Phase B). The operator config for the SMTP relay that per-check email alerts
+    send through: edit, save, and test-send. The password is write-only (masked),
+    and this saves to its own /settings/smtp endpoint so it can never wipe branding.
+    Lives on the console's Alerts tab next to the browser-push card.
+*@
+@using SuperStatus.Data.ViewModels
+@using SuperStatus.Web.Components.Hud
+@inject SettingsApiClient SettingsApi
+@inject ISnackbar Snackbar
+
+<HudPanel Accent="primary" ExtraClass="settings-frame">
+    <HudCallsign Label="ALERTS" Value="Email alerts (SMTP)" Meta="relay · recipients · test" />
+
+    @if (_model is null)
+    {
+        <p class="settings-note">Loading…</p>
+    }
+    else
+    {
+        <div class="settings-section">
+            <span class="settings-hint">Per-check email alerts send through this relay. Save, then send a test to verify.@(_model.SmtpVerifiedUtc is { } v ? $" Last verified {v:u}." : "")</span>
+
+            <div class="settings-grid settings-ai">
+                <label class="settings-field">
+                    <span class="settings-label">SMTP host</span>
+                    <input class="settings-input" type="text" maxlength="255" @bind="_model.SmtpHost" placeholder="smtp.example.com" />
+                </label>
+                <label class="settings-field">
+                    <span class="settings-label">Port</span>
+                    <input class="settings-input" type="number" min="1" max="65535" @bind="_model.SmtpPort" />
+                    <span class="settings-hint">587 STARTTLS · 465 implicit TLS · 25 plain.</span>
+                </label>
+                <label class="settings-field">
+                    <span class="settings-label">From address</span>
+                    <input class="settings-input" type="email" @bind="_model.SmtpFromAddress" placeholder="alerts@example.com" />
+                </label>
+                <label class="settings-field">
+                    <span class="settings-label">From name</span>
+                    <input class="settings-input" type="text" maxlength="120" @bind="_model.SmtpFromName" placeholder="Acme Status" />
+                </label>
+                <label class="settings-field">
+                    <span class="settings-label">Username</span>
+                    <input class="settings-input" type="text" autocomplete="username" @bind="_model.SmtpUsername" placeholder="optional (blank = no auth)" />
+                </label>
+                <label class="settings-field">
+                    <span class="settings-label">Password</span>
+                    <input class="settings-input" type="password" autocomplete="new-password" @bind="_model.SmtpPassword" placeholder="@SmtpPasswordPlaceholder" />
+                    <span class="settings-hint">@SmtpPasswordHint</span>
+                </label>
+                <label class="settings-field">
+                    <span class="settings-label">Default recipients</span>
+                    <input class="settings-input" type="text" @bind="_model.AlertDefaultRecipients" placeholder="ops@example.com, oncall@example.com" />
+                    <span class="settings-hint">Used by checks with email alerts on but no per-check recipients. Comma/space-separated.</span>
+                </label>
+            </div>
+
+            <label class="settings-check">
+                <input type="checkbox" @bind="_model.SmtpUseStartTls" />
+                <span>Use STARTTLS (recommended on port 587)</span>
+            </label>
+
+            <div class="settings-actions">
+                <button class="btn primary" type="button" @onclick="SaveSmtp" disabled="@_savingSmtp">
+                    @(_savingSmtp ? "Saving…" : "Save email settings")
+                </button>
+                <button class="btn" type="button" @onclick="SendTest" disabled="@_testing">
+                    @(_testing ? "Sending…" : "Send test email")
+                </button>
+            </div>
+            <span class="settings-hint">"Send test" uses the <em>saved</em> config + default recipients — save first, then test.</span>
+        </div>
+    }
+</HudPanel>
+
+@code {
+    private SiteSettingsViewModel? _model;
+    private bool _savingSmtp;
+    private bool _testing;
+
+    // The SMTP password is write-only — same masked pattern as the AI key.
+    private string SmtpPasswordPlaceholder => _model?.SmtpPasswordSet == true ? "•••••••• (stored)" : "optional (blank = no auth)";
+    private string SmtpPasswordHint => _model?.SmtpPasswordSet == true
+        ? "A password is stored. Leave blank to keep it, or type a new value to replace it."
+        : "Stored for the relay; cleared if you change the host/port/user/from. Never shown back.";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var current = await SettingsApi.GetSettingsAsync();
+        _model = new SiteSettingsViewModel
+        {
+            // SMTP only — password is write-only (null on GET); the *Set flag drives
+            // the masked placeholder.
+            SmtpHost = current.SmtpHost,
+            SmtpPort = current.SmtpPort,
+            SmtpUseStartTls = current.SmtpUseStartTls,
+            SmtpUsername = current.SmtpUsername,
+            SmtpPassword = null,
+            SmtpPasswordSet = current.SmtpPasswordSet,
+            SmtpFromAddress = current.SmtpFromAddress,
+            SmtpFromName = current.SmtpFromName,
+            AlertDefaultRecipients = current.AlertDefaultRecipients,
+            SmtpVerifiedUtc = current.SmtpVerifiedUtc,
+        };
+    }
+
+    // SMTP saves to its own endpoint (no full reload — nothing to re-theme). On
+    // success re-mask the password + refresh the verified stamp.
+    private async Task SaveSmtp()
+    {
+        if (_model is null || _savingSmtp) return;
+        _savingSmtp = true;
+        try
+        {
+            var saved = await SettingsApi.SaveSmtpSettingsAsync(_model);
+            _model.SmtpPassword = null;
+            _model.SmtpPasswordSet = saved.SmtpPasswordSet;
+            _model.SmtpVerifiedUtc = saved.SmtpVerifiedUtc;
+            Snackbar.Add("Email settings saved.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Could not save email settings: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _savingSmtp = false;
+        }
+    }
+
+    // Sends through the SAVED relay to the default recipients; on success the server
+    // stamps SmtpVerifiedUtc (mirrored here for the hint).
+    private async Task SendTest()
+    {
+        if (_testing) return;
+        _testing = true;
+        try
+        {
+            var (ok, message) = await SettingsApi.SendTestEmailAsync(null);
+            if (ok)
+            {
+                Snackbar.Add($"Test email sent to {message}.", Severity.Success);
+                if (_model is not null) _model.SmtpVerifiedUtc = DateTime.UtcNow;
+            }
+            else
+            {
+                Snackbar.Add($"Test failed: {message}", Severity.Error);
+            }
+        }
+        finally
+        {
+            _testing = false;
+        }
+    }
+}

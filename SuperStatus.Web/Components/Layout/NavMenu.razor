@@ -1,0 +1,33 @@
+@*
+    NavMenu — tactical-HUD sidebar (issue #139 / #126 mock adoption).
+
+    Replaces the stock MudDrawer/MudNavMenu with the design-system `.nav`
+    rail (grid-area: nav, defined in hud-theme.css): grouped, uppercase,
+    accent-reticle active state. Sections mirror the dashboard mock:
+    PUBLIC (anonymous pages), ADMIN (operator console — auth-gated route),
+    INDEX (the Development-only mockup gallery).
+*@
+@inject IWebHostEnvironment Env
+
+@* id="primary-nav" is the aria-controls target of HeaderBar's hamburger and
+   the focus anchor for hud-drawer.js. Each link fires OnNavigate so that, when
+   open as a mobile drawer, tapping a destination also dismisses it (a no-op on
+   desktop where the rail is always visible). *@
+<nav id="primary-nav" class="nav" aria-label="Primary">
+    <div class="nav-label">Public</div>
+    <NavLink class="nav-link" href="" Match="NavLinkMatch.All" @onclick="OnNavigate">Dashboard</NavLink>
+
+    <div class="nav-label">Admin</div>
+    <NavLink class="nav-link" href="admin" Match="NavLinkMatch.Prefix" @onclick="OnNavigate">Operator console</NavLink>
+
+    @if (Env.IsDevelopment())
+    {
+        <div class="nav-label">Index</div>
+        <NavLink class="nav-link" href="ui-gallery" Match="NavLinkMatch.Prefix" @onclick="OnNavigate">Mockup gallery</NavLink>
+    }
+</nav>
+
+@code {
+    /// <summary>Raised when a nav link is clicked — the layout closes the mobile drawer.</summary>
+    [Parameter] public EventCallback OnNavigate { get; set; }
+}

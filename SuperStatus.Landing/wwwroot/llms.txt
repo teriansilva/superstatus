@@ -1,0 +1,41 @@
+# SuperStatus
+
+> SuperStatus is clean, modern, self-hostable status-page software. Run your own
+> public status page — uptime/health checks, an incident timeline, email and
+> browser-push alerts, custom branding, light/dark — on infrastructure you own.
+> Free forever to self-host (Docker); a managed cloud tier is planned.
+
+## What it is
+
+- Open-source status-page software (BUSL-1.1 licensed) you host yourself.
+- A public status page your users can check, plus an operator console to manage
+  status checks, incidents, branding, and alerting.
+- Built on .NET / Blazor and PostgreSQL; ships as Docker images and runs with a
+  single `docker compose up`.
+
+## Key features
+
+- Uptime & health checks with per-service intervals and history.
+- Incident timeline, including optional AI-drafted incident summaries.
+- Alerting: per-check email alerts (SMTP) and browser Web Push notifications;
+  outbound webhooks.
+- Fully ownable: custom branding (title, logo, accent), light & dark themes,
+  no vendor lock-in, export-friendly.
+
+## Get started
+
+- Self-host (one-liner): `curl -fsSL https://superstatus.superstatus.io/install.sh | sh`
+- Landing & docs: https://superstatus.superstatus.io/
+- Source code: https://github.com/teriansilva/superstatus
+
+## Pricing (cloud tiers planned)
+
+- Self-host: €0 / forever — run it on your own infrastructure, unlimited checks, full source.
+- SuperStatus Cloud: from €9 / month — we host, update, and back it up, with TLS and a custom domain.
+- SuperStatus Cloud Pro: from €29 / month — adds managed AI (incident drafts and summaries we
+  run on your behalf) and worldwide monitoring (agents that ping your services from many regions,
+  not just one location), plus more checks, history, team seats, and priority support.
+
+## Contact
+
+- Project home: https://superstatus.superstatus.io/

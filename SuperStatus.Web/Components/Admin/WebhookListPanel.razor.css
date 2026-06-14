@@ -1,0 +1,110 @@
+/* WebhookListPanel — reusable webhook targets table (#291 Phase B). */
+
+::deep .wh-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--s-4, 16px);
+    flex-wrap: wrap;
+    margin-bottom: var(--s-3, 12px);
+}
+
+::deep .wh-note {
+    color: var(--text-3);
+    font-size: 12px;
+    line-height: 1.6;
+    margin: var(--s-3, 12px) 0 0;
+}
+
+/* ---- empty state ---- */
+::deep .wh-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--s-3, 12px);
+    padding: var(--s-6, 32px) var(--s-4, 16px);
+    border: 1px solid var(--line, rgba(255,255,255,0.08));
+    text-align: center;
+}
+::deep .wh-empty-glyph {
+    font-family: var(--font-mono, monospace);
+    font-size: 14px;
+    letter-spacing: 0.3em;
+    color: var(--text-3);
+}
+::deep .wh-empty-copy {
+    color: var(--text-2);
+    font-size: 13px;
+    line-height: 1.6;
+    max-width: 44ch;
+    margin: 0;
+}
+
+/* ---- table: name | url | used-by | state | actions ---- */
+::deep .wh-table {
+    font-family: var(--font-mono, monospace);
+    font-size: 12px;
+}
+::deep .wh-row {
+    display: grid;
+    grid-template-columns: minmax(110px, 0.8fr) minmax(0, 1.6fr) 90px 80px auto;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--line, rgba(255,255,255,0.06));
+}
+::deep .wh-row.wh-h {
+    color: var(--text-3);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+}
+::deep .wh-row.off > .wh-name,
+::deep .wh-row.off > .wh-url,
+::deep .wh-row.off > .wh-used { opacity: 0.6; }
+
+::deep .wh-name { color: var(--text-1); }
+::deep .wh-url {
+    color: var(--text-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+::deep .wh-used { color: var(--text-2); font-variant-numeric: tabular-nums; }
+
+::deep .wh-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    justify-self: end;
+    white-space: nowrap;
+}
+::deep .wh-sep { color: var(--text-3); }
+::deep .wh-link {
+    appearance: none;
+    background: transparent;
+    border: 0;
+    padding: 2px 0;
+    font: inherit;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-2);
+    cursor: pointer;
+}
+::deep .wh-link:hover { color: var(--accent); }
+::deep .wh-link:focus-visible { outline: 1.5px solid var(--accent); outline-offset: 2px; }
+::deep .wh-link:disabled { opacity: 0.45; cursor: default; }
+::deep .wh-link.danger { color: var(--status-down); }
+::deep .wh-link.danger:hover { color: var(--status-down); text-decoration: underline; }
+
+/* Mobile: collapse to name | url | used-by, actions wrap below. */
+@media (max-width: 720px) {
+    ::deep .wh-row {
+        grid-template-columns: minmax(90px, 1fr) minmax(0, 1.4fr) 40px;
+    }
+    ::deep .wh-row > .wh-state { display: none; }
+    ::deep .wh-row > .wh-actions { grid-column: 1 / -1; justify-self: start; }
+    ::deep .wh-row.wh-h > span:nth-child(4),
+    ::deep .wh-row.wh-h > span:nth-child(5) { display: none; }
+}

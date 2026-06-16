@@ -1,0 +1,41 @@
+@*
+    PublicLayout — issue #169.
+
+    The chrome-light shell for customer-facing pages (/, /status/{id}):
+    topbar + content + footer, no nav rail and no hamburger/drawer. The operator
+    console keeps the nav-bearing MainLayout. Shares the same providers
+    (theme / Mud / SiteSettingsProvider branding) and error surface as MainLayout
+    so public pages still get operator branding + Mud components — it only drops
+    the navigation.
+
+    The single-column shape comes from `.app-public` (hud-theme.css); HeaderBar's
+    hamburger is suppressed via ShowNavToggle=false.
+*@
+@using Microsoft.AspNetCore.Components.Authorization
+@inherits LayoutComponentBase
+
+<ThemeProvider />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<CascadingAuthenticationState>
+    <SiteSettingsProvider>
+        @* FooterBar lives INSIDE .app (the footer grid row) so the shell is
+           exactly one viewport tall when content is short — the footer sticks to
+           the bottom and there's no phantom scroll past empty space. *@
+        <div class="app app-public">
+            <HeaderBar ShowNavToggle="false" />
+            <main class="main">
+                @Body
+            </main>
+            <FooterBar />
+        </div>
+    </SiteSettingsProvider>
+    <div id="blazor-error-ui" class="hud-error-ui">
+        <span class="dot" aria-hidden="true"></span>
+        An unhandled error has occurred.
+        <a href="" class="reload">Reload</a>
+        <a class="dismiss" aria-label="Dismiss error">×</a>
+    </div>
+</CascadingAuthenticationState>

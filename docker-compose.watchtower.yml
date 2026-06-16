@@ -1,0 +1,28 @@
+name: superstatus
+
+# Optional self-host auto-update overlay.
+#
+# Enable with:
+#   docker compose -f docker-compose.yml -f docker-compose.watchtower.yml up -d
+#
+# Watchtower mounts /var/run/docker.sock, which is root-equivalent access to the
+# Docker host. Keep this overlay opt-in and do not use it for org-managed
+# staging/production deploys.
+
+services:
+  api:
+    environment:
+      SUPERSTATUS_AUTOUPDATE: watchtower
+
+  watchtower:
+    image: containrrr/watchtower:latest
+    restart: unless-stopped
+    environment:
+      WATCHTOWER_CLEANUP: "true"
+      WATCHTOWER_LABEL_ENABLE: "true"
+      WATCHTOWER_NO_STARTUP_MESSAGE: "true"
+      WATCHTOWER_SCHEDULE: "${WATCHTOWER_SCHEDULE:-0 0 3 * * *}"
+      WATCHTOWER_SCOPE: "superstatus"
+      TZ: "${TZ:-UTC}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock

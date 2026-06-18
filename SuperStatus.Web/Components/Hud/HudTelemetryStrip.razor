@@ -1,0 +1,16 @@
+@*
+    HudTelemetryStrip — dashed-bordered chip strip for top-level metrics.
+
+    Compose with HudChip children:
+        <HudTelemetryStrip>
+            <HudChip K="Up"   V="14" Tone="accent" />
+            <HudChip K="Down" V="0"  Tone="critical" />
+        </HudTelemetryStrip>
+*@
+<div class="telemetry-strip">
+    @ChildContent
+</div>
+
+@code {
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

@@ -1,0 +1,157 @@
+@using SuperStatus.Data.ViewModels
+@inject StatusApiClient StatusApi
+@inject ISnackbar Snackbar
+
+@*
+    AlertProfileEditDialog — add/edit one reusable alert delivery profile
+    (#291 Phase C). Mirrors WebhookEditDialog (hud-dialog skin, MudForm
+    validation, Save via the API client). Linked checks are shown read-only:
+    linking/unlinking happens from each check's dialog, not here.
+
+    Recipients vs site default are mutually exclusive: turning the site-default
+    toggle on disables AND clears the recipients field (recipients come from
+    Settings live at send time, never a copy). Email on + no recipients + no
+    site default can never deliver — blocked client-side with a visible
+    message, mirroring the API's 422 rule (which is surfaced via Snackbar if
+    it slips through anyway).
+*@
+<MudDialog Class="hud-dialog">
+    <TitleContent>
+        <div class="hud-dialog-head">
+            <span class="tag accent"><span class="led up"></span>@(Profile.Id > 0 ? "EDIT ALERT PROFILE" : "ADD ALERT PROFILE")</span>
+            <span class="hud-dialog-name">@(string.IsNullOrWhiteSpace(Profile.Name) ? "New alert profile" : Profile.Name)</span>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        <MudForm @ref="_form">
+            <MudGrid>
+                <MudItem xs="12">
+                    <MudTextField T="string"
+                                  @bind-Value="Profile.Name"
+                                  Label="Name"
+                                  For="@(() => Profile.Name)"
+                                  Required="true"
+                                  RequiredError="Name is required." />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudCheckBox T="bool" @bind-Value="EmailEnabled" Class="ap-email" Color="Color.Primary" Label="Email" />
+                </MudItem>
+                @if (Profile.EmailEnabled)
+                {
+                    <MudItem xs="12">
+                        <MudTextField T="string"
+                                      @bind-Value="Profile.EmailRecipients"
+                                      Class="ap-recipients"
+                                      Label="Recipients"
+                                      Disabled="@Profile.UsesSiteDefaultRecipients"
+                                      HelperText="Comma/space-separated."
+                                      Placeholder="ops@example.com, noc@example.com" />
+                    </MudItem>
+                    <MudItem xs="12">
+                        <MudCheckBox T="bool" @bind-Value="UsesSiteDefaultRecipients" Class="ap-sitedefault" Color="Color.Primary" Label="Use site default recipients" />
+                        <p class="hud-dialog-helper">On: recipients come from Settings live and the field above is disabled. Off + empty recipients = validation error, never a silent fallback.</p>
+                    </MudItem>
+                }
+                <MudItem xs="12">
+                    <MudCheckBox T="bool" @bind-Value="Profile.WebPushEnabled" Class="ap-push" Color="Color.Primary" Label="Web push (all subscribed devices)" />
+                </MudItem>
+                @if (_validationError is not null)
+                {
+                    <MudItem xs="12">
+                        <p class="hud-dialog-error">@_validationError</p>
+                    </MudItem>
+                }
+                @if (Profile.Id > 0)
+                {
+                    <MudItem xs="12">
+                        <p class="hud-dialog-linked">Linked checks: @LinkedNames — read-only; link from each check's dialog.</p>
+                    </MudItem>
+                }
+            </MudGrid>
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Variant="Variant.Outlined" Color="Color.Secondary">Cancel</MudButton>
+        <MudButton OnClick="SubmitAsync" Disabled="@_submitting" Color="Color.Primary" Variant="Variant.Filled">
+            @(!_submitting ? "Save" : "Saving...")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public required AlertProfileViewModel Profile { get; set; }
+
+    private MudForm? _form;
+    private bool _submitting;
+    private string? _validationError;
+
+    private string LinkedNames => Profile.Usage.LinkedCheckNames.Count > 0
+        ? string.Join(", ", Profile.Usage.LinkedCheckNames)
+        : "none";
+
+    private bool EmailEnabled
+    {
+        get => Profile.EmailEnabled;
+        set
+        {
+            Profile.EmailEnabled = value;
+            _validationError = null;
+        }
+    }
+
+    // Mutually exclusive with explicit recipients: turning the toggle on
+    // clears the field (it's also disabled while on) — recipients resolve
+    // from Settings at send time, never a stored copy.
+    private bool UsesSiteDefaultRecipients
+    {
+        get => Profile.UsesSiteDefaultRecipients;
+        set
+        {
+            Profile.UsesSiteDefaultRecipients = value;
+            if (value) Profile.EmailRecipients = string.Empty;
+            _validationError = null;
+        }
+    }
+
+    // Same emptiness rule the API's 422 uses (comma/space/semicolon separated).
+    private static bool HasRecipients(string? raw)
+        => !string.IsNullOrWhiteSpace(raw)
+           && raw.Split(new[] { ',', ';', ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).Length > 0;
+
+    private async Task SubmitAsync()
+    {
+        if (_form is null) return;
+        await _form.Validate();
+        if (!_form.IsValid) return;
+
+        // Mirrors LinkedTargetsAdminApi.ValidateAlertProfile — email on with
+        // nowhere to deliver is the one invalid combination.
+        if (Profile.EmailEnabled && !Profile.UsesSiteDefaultRecipients && !HasRecipients(Profile.EmailRecipients))
+        {
+            _validationError = "Email is enabled but the profile has no recipients — add recipients or turn on site default recipients.";
+            return;
+        }
+        _validationError = null;
+
+        _submitting = true;
+        try
+        {
+            // Close with the API's echo — it carries the assigned Id, so the
+            // check dialog's quick-create can auto-select the new profile (#291 D).
+            var saved = await StatusApi.SaveAlertProfileAsync(Profile);
+            MudDialog.Close(DialogResult.Ok(saved));
+        }
+        catch (Exception ex)
+        {
+            // Includes the API's 422 message if the rule slips past the client check.
+            Snackbar.Add($"Could not save alert profile: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _submitting = false;
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+}

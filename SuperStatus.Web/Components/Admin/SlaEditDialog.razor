@@ -1,0 +1,183 @@
+@using SuperStatus.Data.ViewModels
+@inject StatusApiClient StatusApi
+@inject ISnackbar Snackbar
+
+@*
+    SlaEditDialog — add/edit one SLA target (#293 Phase C). Mirrors
+    WebhookEditDialog/AlertProfileEditDialog (hud-dialog skin, Save via the API
+    client) but uses the mockup's PLAIN-LANGUAGE rows instead of bare numeric
+    fields: "Day is green at ≥ X % uptime" / "Day is red below X % availability"
+    / "Slow tick above X ms", plus a LIVE PREVIEW line that reclassifies a fixed
+    example day through SlaDayClassifier on every input. Validation mirrors the
+    API's 422 rules (ValidateSla). Linked checks are read-only: the SLA is
+    picked in each check's dialog, never here.
+*@
+<MudDialog Class="hud-dialog">
+    <TitleContent>
+        <div class="hud-dialog-head">
+            <span class="tag accent"><span class="led up"></span>@(Sla.Id > 0 ? "EDIT SLA" : "ADD SLA")</span>
+            <span class="hud-dialog-name">@(string.IsNullOrWhiteSpace(Sla.Name) ? "New SLA" : Sla.Name)</span>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        <MudForm @ref="_form">
+            <MudGrid>
+                <MudItem xs="12">
+                    <MudTextField T="string"
+                                  @bind-Value="Sla.Name"
+                                  Label="Name"
+                                  For="@(() => Sla.Name)"
+                                  Required="true"
+                                  RequiredError="Name is required." />
+                </MudItem>
+
+                <MudItem xs="12">
+                    <div class="hud-dialog-section">Day classification</div>
+                </MudItem>
+                <MudItem xs="12">
+                    <div class="sla-plain-row">
+                        <span>Day is <span class="sla-green">green</span> at ≥</span>
+                        <MudNumericField T="double" Class="sla-num sla-target" Value="Target" ValueChanged="OnTargetChanged"
+                                         Min="0" Max="100" Step="0.1" Margin="Margin.Dense" HideSpinButtons="true" Immediate="true" />
+                        <span>% uptime</span>
+                    </div>
+                </MudItem>
+                <MudItem xs="12">
+                    <div class="sla-plain-row">
+                        <span>Day is <span class="sla-red">red</span> below</span>
+                        <MudNumericField T="double" Class="sla-num sla-critical" Value="Critical" ValueChanged="OnCriticalChanged"
+                                         Min="0" Max="100" Step="0.1" Margin="Margin.Dense" HideSpinButtons="true" Immediate="true" />
+                        <span>% availability</span>
+                    </div>
+                    <p class="hud-dialog-helper">between the two thresholds the day renders orange</p>
+                </MudItem>
+                <MudItem xs="12">
+                    <div class="sla-plain-row">
+                        <span>Slow tick above</span>
+                        <MudNumericField T="long" Class="sla-num sla-slowms" Value="SlowMs" ValueChanged="OnSlowMsChanged"
+                                         Min="1" Margin="Margin.Dense" HideSpinButtons="true" Immediate="true" />
+                        <span>ms</span>
+                    </div>
+                    <p class="hud-dialog-helper">
+                        applies at collection time — changing it affects new ticks only;
+                        historical markers keep the threshold active when they were recorded
+                    </p>
+                </MudItem>
+
+                <MudItem xs="12">
+                    @* Live preview: one fixed example day reclassified on every
+                       input — the operator sees what their numbers mean. *@
+                    <p class="sla-preview">@PreviewLine</p>
+                </MudItem>
+
+                @if (_validationError is not null)
+                {
+                    <MudItem xs="12">
+                        <p class="hud-dialog-error">@_validationError</p>
+                    </MudItem>
+                }
+                @if (Sla.Id > 0)
+                {
+                    <MudItem xs="12">
+                        <p class="hud-dialog-linked">Linked checks: @LinkedNames — read-only; pick the SLA in each check's dialog.</p>
+                    </MudItem>
+                }
+            </MudGrid>
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Variant="Variant.Outlined" Color="Color.Secondary">Cancel</MudButton>
+        <MudButton OnClick="SubmitAsync" Disabled="@_submitting" Color="Color.Primary" Variant="Variant.Filled">
+            @(!_submitting ? "Save" : "Saving...")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public required SlaViewModel Sla { get; set; }
+
+    private MudForm? _form;
+    private bool _submitting;
+    private string? _validationError;
+
+    // The fixed example day the preview reclassifies.
+    private const int PreviewTotal = 387;
+    private const int PreviewDown = 2;
+    private const int PreviewSlow = 1;
+
+    private double Target { get => Sla.TargetUptimePercent; set => Sla.TargetUptimePercent = value; }
+    private double Critical { get => Sla.CriticalUptimePercent; set => Sla.CriticalUptimePercent = value; }
+    private long SlowMs { get => Sla.SlowThresholdMs; set => Sla.SlowThresholdMs = value; }
+
+    private void OnTargetChanged(double v) { Target = v; _validationError = null; }
+    private void OnCriticalChanged(double v) { Critical = v; _validationError = null; }
+    private void OnSlowMsChanged(long v) { SlowMs = v; _validationError = null; }
+
+    private string LinkedNames => Sla.Usage.LinkedCheckNames.Count > 0
+        ? string.Join(", ", Sla.Usage.LinkedCheckNames)
+        : "none";
+
+    private string PreviewLine
+    {
+        get
+        {
+            // THE classifier — same code path the strips use, so the preview
+            // can't drift from production behavior.
+            string verdict = SlaDayClassifier.Classify(PreviewTotal, PreviewDown, PreviewSlow, Target, Critical) switch
+            {
+                "down" => "RED",
+                "degraded" => "AMBER",
+                _ => "GREEN",
+            };
+            double availability = (PreviewTotal - PreviewDown) * 100.0 / PreviewTotal;
+            double health = (PreviewTotal - PreviewDown - PreviewSlow) * 100.0 / PreviewTotal;
+            return $"Preview: a day with {PreviewDown} down + {PreviewSlow} slow of {PreviewTotal} ticks → {verdict} "
+                 + $"(availability {availability:0.0}% vs red below {Critical:0.#}% · health {health:0.0}% vs green at ≥ {Target:0.#}%)";
+        }
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (_form is null) return;
+        await _form.Validate();
+        if (!_form.IsValid) return;
+
+        // Mirrors SlaAdminApi.ValidateSla — same rules, same wording shape.
+        _validationError = Validate();
+        if (_validationError is not null) return;
+
+        _submitting = true;
+        try
+        {
+            // Close with the API's echo — it carries the assigned Id, so the
+            // check dialog's quick-create can auto-select the new SLA (#291 D).
+            var saved = await StatusApi.SaveSlaAsync(Sla);
+            MudDialog.Close(DialogResult.Ok(saved));
+        }
+        catch (Exception ex)
+        {
+            // Includes the API's 422 message if a rule slips past the client check.
+            Snackbar.Add($"Could not save SLA: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _submitting = false;
+        }
+    }
+
+    private string? Validate()
+    {
+        if (Sla.TargetUptimePercent is < 0 or > 100)
+            return "The green threshold must be between 0 and 100 % uptime.";
+        if (Sla.CriticalUptimePercent is < 0 or > 100)
+            return "The red threshold must be between 0 and 100 % availability.";
+        if (Sla.CriticalUptimePercent > Sla.TargetUptimePercent)
+            return "The red threshold can't be above the green threshold.";
+        if (Sla.SlowThresholdMs < 1)
+            return "The slow-tick threshold must be at least 1 ms.";
+        return null;
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+}

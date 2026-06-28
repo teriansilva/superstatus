@@ -1,0 +1,579 @@
+@using Microsoft.AspNetCore.Components.Authorization
+@using SuperStatus.Data.Constants
+@using SuperStatus.Data.ViewModels
+@using SuperStatus.Web.Components.Admin
+
+@inject StatusApiClient StatusApi
+@inject IDialogService DialogService
+@inject NavigationManager Navigation
+
+@*
+    StatusCheckEditDialog — rebuilt for #291 Phase D / #293 Phase C around the
+    linked entities. Four sections (per the approved mockup):
+
+      BASICS        — title / URL / description / logo / enabled.
+      MONITORING    — expected status + cadence + the SLA picker (single-select
+                      + "+ New…" quick-create). The legacy "Expected Response
+                      Time (ms)" field is GONE — the SLA defines the slow
+                      threshold and the day-color tolerance.
+      NOTIFICATIONS — webhook + alert-profile chip pickers ("+ New…" opens the
+                      respective edit dialog inline; on save the picker
+                      refreshes and auto-selects the new entity) and the
+                      compact per-check trigger row (fails / down-minutes /
+                      throttle / recovery — these stay per-check).
+      AUTOMATION    — the AI auto-incident opt-in (unchanged).
+
+    Saves post slaId + webhookIds[] + alertProfileIds[] (the id-array path —
+    the API rejects legacy embedded fields with 422 since Phase D). Validation
+    blocks save with a message that NAMES the offending section.
+*@
+<MudDialog Class="hud-dialog">
+    <TitleContent>
+        <div class="hud-dialog-head">
+            <span class="tag accent"><span class="led up"></span>@(StatusCheck.Id > 0 ? "EDIT CHECK" : "ADD CHECK")</span>
+            <span class="hud-dialog-name">@(string.IsNullOrWhiteSpace(StatusCheck.Title) ? "New status check" : StatusCheck.Title)</span>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        @* #312: a stored config that can't be validated against its provider's schema
+           disables the check — surface the calm reason here (matches the scheduler /
+           run-now gate) rather than letting it look healthy. *@
+        @if (!StatusCheck.ConfigValid)
+        {
+            <div class="hud-dialog-config-disabled chk-config-disabled">
+                <span class="led degraded"></span>
+                <div>
+                    <div class="cd-title">Check disabled — fix config</div>
+                    <div class="cd-msg">@StatusCheck.ConfigError</div>
+                </div>
+            </div>
+        }
+        <MudForm @ref="_form">
+
+            <MudGrid>
+                <MudItem xs="12">
+                    <div class="hud-dialog-section">Basics</div>
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField T="string"
+                                  @bind-Value="StatusCheck.Title"
+                                  Label="Title"
+                                  Class="chk-title"
+                                  For="@(()=>StatusCheck.Title)"
+                                  Required="true"
+                                  RequiredError="Title is required." />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField T="string"
+                                  @bind-Value="StatusCheck.Description"
+                                  Label="Description"
+                                  For="@(()=>StatusCheck.Description)"
+                                  Lines="2"
+                                  Placeholder="optional · one line, expands" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField T="string"
+                                  @bind-Value="StatusCheck.ServiceLogoUrl"
+                                  Label="Logo URL"
+                                  For="@(()=>StatusCheck.ServiceLogoUrl)"
+                                  InputType="InputType.Url"
+                                  Placeholder="optional" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudCheckBox T="bool" @bind-Value="StatusCheck.Enabled" Color="Color.Primary" Label="Enabled" />
+                </MudItem>
+            </MudGrid>
+
+            @* #312: provider Type selector + the schema-driven config block. The fields
+               below are GENERATED from the selected provider's ConfigSchema (fetched
+               from the API) — no per-type hardcoded form. Switching Type re-renders only
+               this block; the common fields (interval, SLA, notifications) stay put. *@
+            <MudGrid>
+                <MudItem xs="12">
+                    <div class="hud-dialog-section">Provider</div>
+                </MudItem>
+                <MudItem xs="12">
+                    <MudSelect T="string"
+                               Value="_providerType"
+                               ValueChanged="OnProviderTypeChanged"
+                               Label="Type"
+                               Class="chk-provider-type"
+                               Dense="true">
+                        @foreach (var p in _providers)
+                        {
+                            <MudSelectItem T="string" Value="@p.TypeId">@p.DisplayName</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+                @foreach (var field in _selectedFields)
+                {
+                    <MudItem xs="12" @key="field.Key">
+                        @switch (field.Kind)
+                        {
+                            case "select":
+                                <MudSelect T="string" Value="@GetCfg(field.Key)" ValueChanged="@(v => SetCfg(field.Key, v))"
+                                           Label="@field.Label" Dense="true" Class="@($"chk-cfg-{field.Key}")">
+                                    @foreach (var opt in field.Options)
+                                    {
+                                        <MudSelectItem T="string" Value="@opt.Value">@opt.Label</MudSelectItem>
+                                    }
+                                </MudSelect>
+                                break;
+                            case "bool":
+                                <MudCheckBox T="bool" Value="@GetCfgBool(field.Key)" ValueChanged="@(v => SetCfgBool(field.Key, v))"
+                                             Color="Color.Primary" Label="@field.Label" Class="@($"chk-cfg-{field.Key}")" />
+                                break;
+                            case "secret":
+                                <MudTextField T="string" Value="@GetCfg(field.Key)" ValueChanged="@(v => SetCfg(field.Key, v))"
+                                              Label="@field.Label" InputType="InputType.Password"
+                                              Placeholder="leave blank to keep" Class="@($"chk-cfg-{field.Key}")" />
+                                break;
+                            case "number":
+                                <MudTextField T="string" Value="@GetCfg(field.Key)" ValueChanged="@(v => SetCfg(field.Key, v))"
+                                              Label="@field.Label" InputType="InputType.Number"
+                                              Placeholder="@field.Placeholder" Class="@($"chk-cfg-{field.Key}")" />
+                                break;
+                            default:
+                                <MudTextField T="string" Value="@GetCfg(field.Key)" ValueChanged="@(v => SetCfg(field.Key, v))"
+                                              Label="@field.Label" Placeholder="@field.Placeholder" Class="@($"chk-cfg-{field.Key}")" />
+                                break;
+                        }
+                        @if (!string.IsNullOrWhiteSpace(field.Help))
+                        {
+                            <p class="hud-dialog-helper">@field.Help</p>
+                        }
+                    </MudItem>
+                }
+                <MudItem xs="12">
+                    <p class="hud-dialog-helper">fields above are generated from the provider's config schema</p>
+                </MudItem>
+
+                @* #320 Phase 2b: the agent-heartbeat ping URL. It's a credential, so it's
+                   read-only here (operator-authenticated) and only exists once the check is
+                   saved (the token is generated on create). Regenerate rotates it and
+                   immediately invalidates the old URL. *@
+                @if (_providerType == "heartbeat")
+                {
+                    <MudItem xs="12">
+                        <div class="hud-heartbeat chk-heartbeat">
+                            @if (_heartbeatLoading)
+                            {
+                                <p class="hud-dialog-helper">Loading ping URL…</p>
+                            }
+                            else if (_heartbeatUrl is not null)
+                            {
+                                <div class="hb-label">Ping URL</div>
+                                <code class="hb-url chk-heartbeat-url">@_heartbeatUrl</code>
+                                <p class="hud-dialog-helper">
+                                    Have your agent / cron / worker hit this URL (GET or POST) every run.
+                                    The check goes down if no ping arrives within interval + grace.
+                                    Keep the URL secret — anyone with it can report this check healthy.
+                                </p>
+                                <button type="button" class="picker-add chk-heartbeat-regen" @onclick="RegenerateHeartbeatAsync" disabled="@_heartbeatBusy">
+                                    @(_heartbeatBusy ? "Regenerating…" : "Regenerate URL")
+                                </button>
+                            }
+                            else
+                            {
+                                <p class="hud-dialog-helper">The ping URL is generated when you save this check — re-open it to copy the URL.</p>
+                            }
+                        </div>
+                    </MudItem>
+                }
+            </MudGrid>
+
+            <MudGrid>
+                <MudItem xs="12">
+                    <div class="hud-dialog-section">Monitoring</div>
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    @* Issue #82: per-check polling cadence. Server clamps to
+                       5–3600 s on save; this Min/Max is the advisory client guard. *@
+                    <MudNumericField T="int"
+                                     @bind-Value="StatusCheck.IntervalSeconds"
+                                     Label="Every (s)"
+                                     Class="chk-interval"
+                                     Min="5"
+                                     Max="3600"
+                                     Adornment="Adornment.End"
+                                     AdornmentIcon="@Icons.Material.Filled.Timer"
+                                     HelperText="How often this check runs (5–3600 s)." />
+                </MudItem>
+                <MudItem xs="12">
+                    <div class="picker-row">
+                        <MudSelect T="long?"
+                                   @bind-Value="_slaId"
+                                   Label="SLA"
+                                   Class="chk-sla"
+                                   Dense="true">
+                            @foreach (var sla in _slas)
+                            {
+                                <MudSelectItem T="long?" Value="@((long?)sla.Id)">@sla.Name@(sla.IsDefault ? " ★" : "")</MudSelectItem>
+                            }
+                        </MudSelect>
+                        <button type="button" class="picker-add chk-sla-new" @onclick="NewSlaAsync">+ New…</button>
+                    </div>
+                    <p class="hud-dialog-helper">defines slow threshold + day color tolerance · manage on Admin → SLAs</p>
+                </MudItem>
+            </MudGrid>
+
+            <MudGrid>
+                <MudItem xs="12">
+                    <div class="hud-dialog-section">Notifications</div>
+                </MudItem>
+                <MudItem xs="12">
+                    <div class="picker-chips chk-webhooks">
+                        <span class="picker-label">Webhooks</span>
+                        @foreach (var w in _webhooks)
+                        {
+                            <button type="button"
+                                    class="pick-chip @(_webhookIds.Contains(w.Id) ? "on" : "")"
+                                    @onclick="() => ToggleWebhook(w.Id)">
+                                @w.Name@(_webhookIds.Contains(w.Id) ? " ×" : "")
+                            </button>
+                        }
+                        <button type="button" class="picker-add chk-webhook-new" @onclick="NewWebhookAsync">+ New…</button>
+                    </div>
+                    <p class="hud-dialog-helper">fire on failure · manage on Admin → Webhooks</p>
+                </MudItem>
+                <MudItem xs="12">
+                    <div class="picker-chips chk-profiles">
+                        <span class="picker-label">Alert profiles</span>
+                        @foreach (var p in _profiles)
+                        {
+                            <button type="button"
+                                    class="pick-chip @(_profileIds.Contains(p.Id) ? "on" : "")"
+                                    @onclick="() => ToggleProfile(p.Id)">
+                                @p.Name@(_profileIds.Contains(p.Id) ? " ×" : "")
+                            </button>
+                        }
+                        <button type="button" class="picker-add chk-profile-new" @onclick="NewProfileAsync">+ New…</button>
+                    </div>
+                    <p class="hud-dialog-helper">who gets notified · manage on Admin → Alerts</p>
+                </MudItem>
+                <MudItem xs="12">
+                    @* #241/#253: the per-check trigger rules stay embedded —
+                       they describe THIS check's outage, not a reusable target. *@
+                    <div class="trigger-row chk-trigger">
+                        <span>after</span>
+                        <MudNumericField T="int" @bind-Value="StatusCheck.AlertOnFailureThreshold" Class="trigger-num chk-fails" Min="0" Margin="Margin.Dense" HideSpinButtons="true" />
+                        <span>fails</span>
+                        <span class="trigger-dim">·</span>
+                        <span>or down ≥</span>
+                        <MudNumericField T="int" @bind-Value="StatusCheck.AlertOnOutageMinutes" Class="trigger-num chk-downmin" Min="0" Margin="Margin.Dense" HideSpinButtons="true" />
+                        <span>min</span>
+                        <span class="trigger-dim">·</span>
+                        <span>throttle</span>
+                        <MudNumericField T="int" @bind-Value="StatusCheck.AlertThrottleMinutes" Class="trigger-num chk-throttle" Min="0" Margin="Margin.Dense" HideSpinButtons="true" />
+                        <span>min</span>
+                    </div>
+                    <MudCheckBox T="bool" @bind-Value="StatusCheck.AlertOnRecovery" Color="Color.Primary" Label="also on recovery" />
+                    <p class="hud-dialog-helper">0 = off. Applies to every linked webhook/profile of this check.</p>
+                </MudItem>
+            </MudGrid>
+
+            @* Issue #168: per-check opt-in for AI-authored incidents on sustained
+               downtime. Only fires when the instance's AI settings are enabled. *@
+            <MudGrid>
+                <MudItem xs="12">
+                    <div class="hud-dialog-section">Automation</div>
+                </MudItem>
+                <MudItem xs="12">
+                    <MudCheckBox T="bool" @bind-Value="StatusCheck.AutoIncidentEnabled" Color="Color.Primary"
+                                 Label="Auto-draft an incident if this service stays down" />
+                </MudItem>
+            </MudGrid>
+
+            @if (_validationError is not null)
+            {
+                <p class="hud-dialog-error chk-validation">@_validationError</p>
+            }
+
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Variant="Variant.Outlined" Color="Color.Secondary">Cancel</MudButton>
+        <MudButton OnClick="SubmitAsync" Disabled="@_submitting" Color="Color.Primary" Variant="Variant.Filled">
+            @(!_submitting ? "Save" : "Saving...")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public required StatusCheckViewModelBase StatusCheck { get; set; }
+
+    private MudForm? _form;
+    private bool _submitting;
+    private string? _validationError;
+
+    private List<SlaViewModel> _slas = new();
+    private List<WebhookViewModel> _webhooks = new();
+    private List<AlertProfileViewModel> _profiles = new();
+
+    private long? _slaId;
+    private HashSet<long> _webhookIds = new();
+    private HashSet<long> _profileIds = new();
+
+    // #312: provider descriptors (fetched) + the selected type's schema fields.
+    private List<ProviderDescriptorViewModel> _providers = new();
+    private string _providerType = "http";
+    private List<ProviderConfigFieldViewModel> _selectedFields = new();
+
+    // #320 Phase 2b: the heartbeat ping URL (fetched over the authenticated path, never on
+    // the read VM). Null until loaded / when the check isn't yet a saved heartbeat check.
+    private const string HeartbeatTypeId = "heartbeat";
+    private string? _heartbeatUrl;
+    private bool _heartbeatLoading;
+    private bool _heartbeatBusy;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _slas = await StatusApi.GetSlasAsync();
+        _webhooks = await StatusApi.GetWebhooksAsync();
+        _profiles = await StatusApi.GetAlertProfilesAsync();
+
+        // #312: the provider catalogue + schemas. If the call fails, fall back to a
+        // built-in http descriptor so the dialog still renders its fields.
+        _providers = await StatusApi.GetCheckProvidersAsync();
+        if (_providers.Count == 0) _providers = new() { DefaultHttpDescriptor() };
+
+        // #312: keep the stored provider type even if it isn't registered here. An
+        // unknown type is shown disabled (the banner explains) and is NEVER silently
+        // rewritten to another provider — only an explicit operator pick rewrites it
+        // (the server-side rule is "unknown disables calmly, never silently defaults").
+        _providerType = string.IsNullOrWhiteSpace(StatusCheck.ProviderType) ? "http" : StatusCheck.ProviderType;
+        StatusCheck.ProviderType = _providerType;
+        _selectedFields = _providers.FirstOrDefault(p => p.TypeId == _providerType)?.Fields ?? new();
+
+        // Seed config values: an existing check carries them (the read VM populated
+        // ProviderConfig); a new http check seeds from the VM defaults so the form is
+        // pre-filled (url empty, expected status 200) rather than blank.
+        SeedConfigDefaults();
+
+        // Selection state seeds from the read-only round-trip ids; a new check
+        // preselects the instance default SLA.
+        _slaId = StatusCheck.LinkedSlaId ?? _slas.FirstOrDefault(s => s.IsDefault)?.Id;
+        _webhookIds = StatusCheck.LinkedWebhookIds.ToHashSet();
+        _profileIds = StatusCheck.LinkedAlertProfileIds.ToHashSet();
+
+        // #320: pull the ping URL for an existing heartbeat check so it renders on open.
+        await LoadHeartbeatUrlAsync();
+    }
+
+    // #312: a static http descriptor matching HttpCheckProvider's schema, used only if
+    // the providers endpoint is unreachable, so the edit dialog degrades gracefully.
+    private static ProviderDescriptorViewModel DefaultHttpDescriptor() => new()
+    {
+        TypeId = "http",
+        DisplayName = "HTTP(S)",
+        Icon = "link",
+        SchemaVersion = 1,
+        Fields = new()
+        {
+            new() { Key = "url", Label = "URL", Kind = "text", Required = true, Help = "The endpoint to probe with a GET request.", Placeholder = "https://api.example.com/health" },
+            new() { Key = "expectedStatusCode", Label = "Expected status", Kind = "number", Required = true, Help = "The HTTP status code that counts as healthy (e.g. 200, 204, 301, 401).", Placeholder = "200" },
+        },
+    };
+
+    private async Task OnProviderTypeChanged(string typeId)
+    {
+        _providerType = typeId;
+        StatusCheck.ProviderType = typeId;
+        _selectedFields = _providers.FirstOrDefault(p => p.TypeId == typeId)?.Fields ?? new();
+        // Drop config keys that don't belong to the newly-selected provider. The map
+        // accumulates across switches, so a key seeded for a previous type — e.g. http's
+        // "url" — would otherwise linger and trip URL validation on a URL-less push provider
+        // (heartbeat). StatusCheckUrl is the backing store for http's "url", so switching
+        // back re-seeds it (no data loss). Then fill in the new provider's defaults.
+        var allowed = _selectedFields.Select(f => f.Key).ToHashSet();
+        foreach (var stale in StatusCheck.ProviderConfig.Keys.Where(k => !allowed.Contains(k)).ToList())
+            StatusCheck.ProviderConfig.Remove(stale);
+        SeedConfigDefaults();
+        // Switching type re-evaluates the ping URL (shown only for heartbeat; a check that
+        // isn't a saved heartbeat yet has no token, so the callout says "save to generate").
+        await LoadHeartbeatUrlAsync();
+    }
+
+    // ---- #320 Phase 2b: heartbeat ping URL ----
+
+    private string BuildPingUrl(string token) => $"{Navigation.BaseUri}{HeartbeatTypeId}/{token}";
+
+    private async Task LoadHeartbeatUrlAsync()
+    {
+        // Only a saved heartbeat check has a token (it's generated on create). A new check,
+        // or one just switched to heartbeat in the form, has none yet → null → "save to
+        // generate". 404 (not a heartbeat check on the server) collapses to the same null.
+        if (_providerType != HeartbeatTypeId || StatusCheck.Id <= 0)
+        {
+            _heartbeatUrl = null;
+            return;
+        }
+        _heartbeatLoading = true;
+        try
+        {
+            var token = await StatusApi.GetHeartbeatTokenAsync(StatusCheck.Id);
+            _heartbeatUrl = string.IsNullOrEmpty(token) ? null : BuildPingUrl(token);
+        }
+        finally
+        {
+            _heartbeatLoading = false;
+        }
+    }
+
+    private async Task RegenerateHeartbeatAsync()
+    {
+        if (StatusCheck.Id <= 0) return;
+        _heartbeatBusy = true;
+        try
+        {
+            var token = await StatusApi.RegenerateHeartbeatTokenAsync(StatusCheck.Id);
+            if (!string.IsNullOrEmpty(token)) _heartbeatUrl = BuildPingUrl(token);
+        }
+        finally
+        {
+            _heartbeatBusy = false;
+        }
+    }
+
+    private void SeedConfigDefaults()
+    {
+        foreach (var f in _selectedFields)
+        {
+            if (StatusCheck.ProviderConfig.ContainsKey(f.Key)) continue;
+            // For http, fall back to the legacy VM fields so an existing/new check
+            // pre-fills correctly; other keys start blank.
+            StatusCheck.ProviderConfig[f.Key] = f.Key switch
+            {
+                "url" => StatusCheck.StatusCheckUrl ?? string.Empty,
+                "expectedStatusCode" => StatusCheck.ExpectedStatusCode.ToString(),
+                _ => string.Empty,
+            };
+        }
+    }
+
+    private string GetCfg(string key) => StatusCheck.ProviderConfig.TryGetValue(key, out var v) ? v : string.Empty;
+
+    private void SetCfg(string key, string? val)
+    {
+        StatusCheck.ProviderConfig[key] = val ?? string.Empty;
+        // Mirror the http keys into the legacy VM props so client-side validation and
+        // byte-for-byte parity hold (the server treats ProviderConfig as authoritative).
+        if (key == "url") StatusCheck.StatusCheckUrl = val ?? string.Empty;
+        if (key == "expectedStatusCode" && int.TryParse(val, out var code)) StatusCheck.ExpectedStatusCode = code;
+    }
+
+    private bool GetCfgBool(string key) => GetCfg(key).Equals("true", StringComparison.OrdinalIgnoreCase);
+
+    private void SetCfgBool(string key, bool val) => SetCfg(key, val ? "true" : "false");
+
+    private void ToggleWebhook(long id)
+    {
+        if (!_webhookIds.Remove(id)) _webhookIds.Add(id);
+    }
+
+    private void ToggleProfile(long id)
+    {
+        if (!_profileIds.Remove(id)) _profileIds.Add(id);
+    }
+
+    // ---- quick-create ("+ New…"): open the respective edit dialog inline; on
+    // save the picker refreshes and auto-selects the new entity. ----
+
+    private async Task NewSlaAsync()
+    {
+        var parameters = new DialogParameters<SlaEditDialog> { { x => x.Sla, new SlaViewModel() } };
+        var dialog = await DialogService.ShowAsync<SlaEditDialog>("Add SLA", parameters, QuickCreateOptions);
+        if ((await dialog.Result) is { Canceled: false, Data: SlaViewModel saved })
+        {
+            _slas = await StatusApi.GetSlasAsync();
+            _slaId = saved.Id;
+            StateHasChanged();
+        }
+    }
+
+    private async Task NewWebhookAsync()
+    {
+        var parameters = new DialogParameters<WebhookEditDialog> { { x => x.Webhook, new WebhookViewModel() } };
+        var dialog = await DialogService.ShowAsync<WebhookEditDialog>("Add webhook", parameters, QuickCreateOptions);
+        if ((await dialog.Result) is { Canceled: false, Data: WebhookViewModel saved })
+        {
+            _webhooks = await StatusApi.GetWebhooksAsync();
+            _webhookIds.Add(saved.Id);
+            StateHasChanged();
+        }
+    }
+
+    private async Task NewProfileAsync()
+    {
+        var parameters = new DialogParameters<AlertProfileEditDialog> { { x => x.Profile, new AlertProfileViewModel() } };
+        var dialog = await DialogService.ShowAsync<AlertProfileEditDialog>("Add alert profile", parameters, QuickCreateOptions);
+        if ((await dialog.Result) is { Canceled: false, Data: AlertProfileViewModel saved })
+        {
+            _profiles = await StatusApi.GetAlertProfilesAsync();
+            _profileIds.Add(saved.Id);
+            StateHasChanged();
+        }
+    }
+
+    private static DialogOptions QuickCreateOptions => new() { CloseOnEscapeKey = true, CloseButton = true };
+
+    // ---- save ----
+
+    /// <summary>Client-side validation that NAMES the offending section, so the
+    /// operator knows where to scroll in the long dialog. Public + static so
+    /// the bUnit suite can exercise the Monitoring/Notifications branches that
+    /// the clamping numeric fields make unreachable through the UI
+    /// (defense-in-depth against programmatic VM mutation).</summary>
+    public static string? ValidateSections(StatusCheckViewModelBase check)
+    {
+        if (string.IsNullOrWhiteSpace(check.Title))
+            return "Basics: a title is required.";
+        // A URL is required only for providers that declare a "url" config field
+        // (the http pull provider). Push providers (heartbeat) carry no URL, and
+        // providers with their own endpoint field (ai → baseUrl) don't use the
+        // legacy StatusCheckUrl column — so don't demand it of them.
+        if (check.ProviderConfig.ContainsKey("url") && string.IsNullOrWhiteSpace(check.StatusCheckUrl))
+            return "Basics: a check URL is required.";
+        if (check.IntervalSeconds is < 5 or > 3600)
+            return "Monitoring: the polling interval must be between 5 and 3600 seconds.";
+        if (check.AlertOnFailureThreshold < 0 || check.AlertOnOutageMinutes < 0 || check.AlertThrottleMinutes < 0)
+            return "Notifications: trigger values can't be negative.";
+        return null;
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (_form is null) return;
+        await _form.Validate();
+
+        _validationError = ValidateSections(StatusCheck);
+        if (_validationError is not null || !_form.IsValid) return;
+
+        // The id-array path — NO legacy embedded fields (the API 422s them).
+        StatusCheck.SlaId = _slaId;
+        StatusCheck.WebhookIds = _webhookIds.ToList();
+        StatusCheck.AlertProfileIds = _profileIds.ToList();
+        // #312: the selected provider type + its schema-driven config ride on the VM.
+        StatusCheck.ProviderType = _providerType;
+
+        _submitting = true;
+        try
+        {
+            await StatusApi.UpdateOrAddStatusCheck(StatusCheck);
+            MudDialog.Close(DialogResult.Ok(StatusCheck));
+        }
+        catch (Exception ex)
+        {
+            // Surfaces the API's 422 (unknown ids, rejected legacy payloads).
+            _validationError = $"Save failed: {ex.Message}";
+        }
+        finally
+        {
+            _submitting = false;
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+}

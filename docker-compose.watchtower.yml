@@ -1,0 +1,42 @@
+name: superstatus
+
+# Optional self-host auto-update overlay.
+#
+# Enable with:
+#   docker compose -f docker-compose.yml -f docker-compose.watchtower.yml up -d
+#
+# Watchtower mounts /var/run/docker.sock, which is root-equivalent access to the
+# Docker host. Keep this overlay opt-in and do not use it for org-managed
+# staging/production deploys.
+#
+# Issue #311: Watchtower also runs its http-api so the operator console's
+# "Update now" button can trigger an immediate pull+restart. The app calls
+# http://watchtower:8080/v1/update over the internal network with a shared bearer
+# token (SUPERSTATUS_UPDATE_TOKEN, from .env) — the web/api containers still never
+# touch the Docker socket; only Watchtower does. The api gets the URL + token so it
+# can authenticate; the port is NOT published to the host.
+
+services:
+  api:
+    environment:
+      SUPERSTATUS_AUTOUPDATE: watchtower
+      SUPERSTATUS_UPDATE_TRIGGER_URL: http://watchtower:8080/v1/update
+      SUPERSTATUS_UPDATE_TOKEN: ${SUPERSTATUS_UPDATE_TOKEN:?set SUPERSTATUS_UPDATE_TOKEN in .env (run install.sh --auto-update)}
+
+  watchtower:
+    image: containrrr/watchtower:latest
+    restart: unless-stopped
+    environment:
+      WATCHTOWER_CLEANUP: "true"
+      WATCHTOWER_LABEL_ENABLE: "true"
+      WATCHTOWER_NO_STARTUP_MESSAGE: "true"
+      WATCHTOWER_SCHEDULE: "${WATCHTOWER_SCHEDULE:-0 0 3 * * *}"
+      WATCHTOWER_SCOPE: "superstatus"
+      # On-demand trigger for the console's "Update now" button. PERIODIC_POLLS keeps
+      # the nightly schedule running alongside the http-api endpoint.
+      WATCHTOWER_HTTP_API_UPDATE: "true"
+      WATCHTOWER_HTTP_API_TOKEN: ${SUPERSTATUS_UPDATE_TOKEN:?set SUPERSTATUS_UPDATE_TOKEN in .env (run install.sh --auto-update)}
+      WATCHTOWER_HTTP_API_PERIODIC_POLLS: "true"
+      TZ: "${TZ:-UTC}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock

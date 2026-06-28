@@ -1,0 +1,268 @@
+@*
+    Issue #249 (epic #248): operator-console Updates panel. Shows the running
+    version vs the latest release, a guided upgrade command, last-checked time,
+    and a "check now" action. Read-only — never applies an update (that's the
+    opt-in Watchtower overlay, Phase 2). Calm admin styling per docs/design-system.md:
+    no motion, semantic status colours, honest empty/error states. Mockup:
+    mockups/updates-panel.html.
+*@
+@using SuperStatus.Data.ViewModels
+@using SuperStatus.Web.Components.Hud
+@inject UpdatesApiClient UpdatesApi
+@inject ISnackbar Snackbar
+@inject IJSRuntime JS
+
+<div class="admin-section">
+    <HudPanel ExtraClass="updates-frame">
+        <HudCallsign Label="UPDATES" Value="Version & releases" Meta="@MetaLine" />
+
+        @if (!_loaded)
+        {
+            <p class="admin-note">Checking for updates…</p>
+        }
+        else if (_status is null)
+        {
+            @* Loaded, but the update service couldn't be reached — honest, retryable. *@
+            <span class="up-tag fail"><span class="up-dot"></span>Service unavailable</span>
+            <p class="up-err">Couldn't reach the update service. It may still be starting up.</p>
+            <div class="up-row">
+                <button type="button" class="btn" disabled="@_checking" @onclick="Reload">
+                    @(_checking ? "Retrying…" : "Retry")
+                </button>
+            </div>
+        }
+        else
+        {
+            <span class="up-tag @TagClass"><span class="up-dot"></span>@TagLabel</span>
+
+            <div class="up-kv">
+                <span class="k">Running</span>
+                <span class="v accent">@DisplayVersion(_status.CurrentVersion)</span>
+
+                @if (!IsEdge)
+                {
+                    <span class="k">Latest</span>
+                    <span class="v @(IsAvailable ? "warn" : "")">
+                        @if (_status.LatestVersion is { Length: > 0 })
+                        {
+                            @DisplayVersion(_status.LatestVersion)
+                            @if (_status.LastCheckError is not null) { <span class="muted"> (last known)</span> }
+                            @if (_status.LatestNotesUrl is { Length: > 0 } notes)
+                            {
+                                <span> · <a href="@notes" target="_blank" rel="noopener">release notes ↗</a></span>
+                            }
+                        }
+                        else
+                        {
+                            <span class="muted">—</span>
+                        }
+                    </span>
+                }
+
+                <span class="k">Channel</span>
+                <span class="v muted">@_status.Channel</span>
+            </div>
+
+            @if (_status.LastCheckError is { Length: > 0 } err)
+            {
+                <p class="up-err">Couldn't reach the release feed: @err</p>
+            }
+
+            @if (IsAvailable)
+            {
+                @if (CanApply)
+                {
+                    @* One-click apply is available (Watchtower http-api). The guided
+                       command appears only as a fallback when an apply attempt failed. *@
+                    @if (_applyError is { Length: > 0 } applyErr)
+                    {
+                        <p class="up-err">@applyErr</p>
+                        <div class="up-cmd">
+                            <span class="p">$</span>
+                            <code @ref="_cmdRef">@_status.UpgradeCommand</code>
+                            <button type="button" class="up-copy" @onclick="CopyCommand">Copy</button>
+                        </div>
+                    }
+                    <p class="admin-note">
+                        @(_applying
+                            ? "Update requested — Watchtower is pulling the new images and recreating the containers. This page will reconnect on its own when the web service is back."
+                            : "Pulls the latest images and restarts. The console will briefly disconnect and reconnect.")
+                    </p>
+                }
+                else
+                {
+                    <div class="up-cmd">
+                        <span class="p">$</span>
+                        <code @ref="_cmdRef">@_status.UpgradeCommand</code>
+                        <button type="button" class="up-copy" @onclick="CopyCommand">Copy</button>
+                    </div>
+                    <p class="admin-note">Run this on the host to update. @(_status.AutoUpdateActive ? "Automatic updates are on — it will also be applied tonight." : "")</p>
+                }
+            }
+
+            <div class="up-row">
+                @if (IsAvailable && CanApply)
+                {
+                    <button type="button" class="btn up-apply" disabled="@(_applying || _checking)" @onclick="Apply">
+                        @(_applying ? "Updating…" : "Update now")
+                    </button>
+                }
+                <button type="button" class="btn" disabled="@(_checking || _applying)" @onclick="CheckNow">
+                    @(_checking ? "Checking…" : "Check now")
+                </button>
+                <span class="up-auto @(_status.AutoUpdateActive ? "" : "off")">
+                    Auto-update <b>@(_status.AutoUpdateActive ? "on" : "off")</b>@(_status.AutoUpdateActive ? " · Watchtower" : "")
+                </span>
+            </div>
+        }
+    </HudPanel>
+</div>
+
+@code {
+    private UpdateStatusViewModel? _status;
+    private bool _loaded;
+    private bool _checking;
+    private bool _applying;
+    private string? _applyError;
+    private ElementReference _cmdRef;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _status = await UpdatesApi.GetAsync();
+        _loaded = true;
+    }
+
+    // Re-fetch the status (used by the "Retry" action when the API was unreachable).
+    private async Task Reload()
+    {
+        if (_checking) return;
+        _checking = true;
+        try
+        {
+            _status = await UpdatesApi.GetAsync();
+        }
+        finally
+        {
+            _checking = false;
+        }
+    }
+
+    private bool IsEdge => _status?.Status == UpdateStatusViewModel.StatusEdge;
+    private bool IsAvailable => _status?.Status == UpdateStatusViewModel.StatusUpdateAvailable;
+    // One-click apply offered only when the api advertises a configured Watchtower trigger.
+    private bool CanApply => _status?.CanApplyInApp == true;
+
+    // While applying, the "Updating…" state takes priority; otherwise the "couldn't
+    // check" overlay takes visual priority over the (stale) verdict.
+    private string TagClass => _applying ? "busy" : _status switch
+    {
+        null => "",
+        { Channel: "edge" } => "dev",
+        { LastCheckError: { Length: > 0 } } => "fail",
+        { Status: UpdateStatusViewModel.StatusUpdateAvailable } => "avail",
+        { Status: UpdateStatusViewModel.StatusUpToDate } => "up",
+        _ => "dev",
+    };
+
+    private string TagLabel => _applying ? "Updating…" : _status switch
+    {
+        null => "",
+        { Channel: "edge" } => "Development build",
+        { LastCheckError: { Length: > 0 } } => "Couldn't check",
+        { Status: UpdateStatusViewModel.StatusUpdateAvailable } => "Update available",
+        { Status: UpdateStatusViewModel.StatusUpToDate } => "Up to date",
+        _ => "Not checked yet",
+    };
+
+    private string MetaLine => _status?.LastCheckedUtc is { } t
+        ? $"checked {Ago(t)}"
+        : "not checked yet";
+
+    private static string DisplayVersion(string v)
+        => string.IsNullOrWhiteSpace(v) || v == "edge" ? (v ?? string.Empty) : $"v{v}";
+
+    private static string Ago(DateTime utc)
+    {
+        var d = DateTime.UtcNow - utc;
+        if (d < TimeSpan.FromMinutes(1)) return "just now";
+        if (d < TimeSpan.FromHours(1)) return $"{(int)d.TotalMinutes}m ago";
+        if (d < TimeSpan.FromDays(1)) return $"{(int)d.TotalHours}h ago";
+        return $"{(int)d.TotalDays}d ago";
+    }
+
+    private async Task CheckNow()
+    {
+        if (_checking) return;
+        _checking = true;
+        try
+        {
+            var fresh = await UpdatesApi.CheckNowAsync();
+            if (fresh is not null)
+            {
+                _status = fresh;
+                Snackbar.Add(
+                    fresh.Status == UpdateStatusViewModel.StatusUpdateAvailable
+                        ? $"Update available: v{fresh.LatestVersion}"
+                        : fresh.LastCheckError is { Length: > 0 }
+                            ? "Couldn't reach the release feed."
+                            : "You're on the latest release.",
+                    fresh.LastCheckError is { Length: > 0 } ? Severity.Warning : Severity.Success);
+            }
+            else
+            {
+                Snackbar.Add("Couldn't run the update check.", Severity.Error);
+            }
+        }
+        finally
+        {
+            _checking = false;
+        }
+    }
+
+    // Issue #311: apply the update now via Watchtower's http-api. On accept we stay in
+    // the "Updating…" state — the apply restarts the app and the existing SignalR
+    // reconnect toast brings the console back (OnInitialized re-reads the fresh status).
+    // The button is disabled while applying, and the trigger has a server-side cooldown,
+    // so repeated clicks can't spam Watchtower. On failure: calm error + guided fallback.
+    private async Task Apply()
+    {
+        if (_applying || _checking || _status is null) return;
+        _applying = true;
+        _applyError = null;
+        try
+        {
+            var result = await UpdatesApi.ApplyAsync();
+            if (result.Accepted)
+            {
+                Snackbar.Add("Update started — the console will reconnect shortly.", Severity.Success);
+                // Leave _applying = true; the circuit drop + reconnect resets the panel.
+            }
+            else
+            {
+                _applying = false;
+                _applyError = result.Error ?? "Couldn't start the update.";
+                Snackbar.Add(_applyError, Severity.Error);
+            }
+        }
+        catch
+        {
+            _applying = false;
+            _applyError = "Couldn't start the update.";
+            Snackbar.Add(_applyError, Severity.Error);
+        }
+    }
+
+    private async Task CopyCommand()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _status?.UpgradeCommand ?? string.Empty);
+            Snackbar.Add("Command copied.", Severity.Success);
+        }
+        catch
+        {
+            // Clipboard API unavailable (e.g. insecure context) — the command is
+            // selectable in the panel as a fallback.
+        }
+    }
+}

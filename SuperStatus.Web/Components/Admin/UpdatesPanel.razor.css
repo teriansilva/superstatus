@@ -1,0 +1,110 @@
+/* Issue #249 (epic #248): Updates panel. Calm admin styling — no motion;
+   semantic status colours from the HUD theme tokens. */
+
+.up-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    border: 1px solid var(--line-strong, rgba(255, 255, 255, 0.22));
+    padding: 3px 9px;
+    margin-top: 4px;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-2, #a7abb3);
+}
+.up-tag .up-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--status-unknown, #6f747d);
+}
+.up-tag.up { border-color: var(--accent, #3fbf6f); color: var(--accent, #3fbf6f); }
+.up-tag.up .up-dot { background: var(--status-up, #3fbf6f); }
+.up-tag.avail { border-color: var(--status-degraded, #f59e0b); color: var(--status-degraded, #f59e0b); }
+.up-tag.avail .up-dot { background: var(--status-degraded, #f59e0b); }
+.up-tag.fail { border-color: var(--status-down, #c02020); color: #e07a7a; }
+.up-tag.fail .up-dot { background: var(--status-down, #c02020); }
+/* Issue #311: applying an update — calm accent (no motion), like "up to date". */
+.up-tag.busy { border-color: var(--accent, #3fbf6f); color: var(--accent, #3fbf6f); }
+.up-tag.busy .up-dot { background: var(--status-up, #3fbf6f); }
+
+.up-kv {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 6px 18px;
+    margin: 14px 0;
+    font-size: 13px;
+}
+.up-kv .k {
+    color: var(--text-3, #6f747d);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+.up-kv .v { color: var(--text-1, #e8e9ec); }
+.up-kv .v.accent { color: var(--accent, #3fbf6f); }
+.up-kv .v.warn { color: var(--status-degraded, #f59e0b); }
+.up-kv .v .muted, .up-kv .v.muted { color: var(--text-3, #6f747d); }
+.up-kv a { color: var(--accent, #3fbf6f); text-decoration: none; }
+.up-kv a:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+.up-err { color: #e07a7a; font-size: 11px; margin: 6px 0 0; }
+
+.up-cmd {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--bg-0, #0d0e10);
+    border: 1px solid var(--line, rgba(255, 255, 255, 0.12));
+    padding: 10px 12px;
+    margin: 12px 0 6px;
+    overflow-x: auto;
+    font-family: var(--font-mono, ui-monospace, monospace);
+}
+.up-cmd .p { color: var(--accent, #3fbf6f); user-select: none; flex: 0 0 auto; }
+.up-cmd code { white-space: nowrap; color: var(--text-1, #e8e9ec); }
+.up-cmd .up-copy {
+    margin-left: auto;
+    flex: 0 0 auto;
+    border: 1px solid var(--line-strong, rgba(255, 255, 255, 0.22));
+    color: var(--text-2, #a7abb3);
+    background: transparent;
+    padding: 3px 9px;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    cursor: pointer;
+}
+.up-cmd .up-copy:hover { border-color: var(--accent, #3fbf6f); color: var(--accent, #3fbf6f); }
+
+.up-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 14px;
+    flex-wrap: wrap;
+}
+.up-auto {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--text-3, #6f747d);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+.up-auto b { color: var(--accent, #3fbf6f); }
+.up-auto.off b { color: var(--text-2, #a7abb3); }
+
+/* Issue #311: the primary "Update now" action — calm filled accent (no motion).
+   Composes with the global .btn base; disabled (while applying) reverts to a quiet
+   outline so the "Updating…" label reads as in-progress, not clickable. */
+.up-apply { border-color: var(--accent, #3fbf6f); background: var(--accent, #3fbf6f); color: var(--bg-0, #0d0e10); }
+.up-apply:hover { background: #46cd78; border-color: #46cd78; color: var(--bg-0, #0d0e10); }
+.up-apply:disabled, .up-apply[disabled] {
+    opacity: 0.6;
+    cursor: default;
+    background: transparent;
+    color: var(--accent, #3fbf6f);
+    border-color: var(--accent-soft, rgba(63, 191, 111, 0.4));
+}

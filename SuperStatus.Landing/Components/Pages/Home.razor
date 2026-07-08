@@ -1,0 +1,328 @@
+@page "/"
+@*
+    Landing page (#196). Built entirely from the shared design-system CSS
+    primitives (.panel / .cnr brackets / .tag / .btn / .telemetry-strip) so it
+    matches the live dashboard. Static SSR — no interactivity.
+*@
+
+<PageTitle>SuperStatus — status pages you own</PageTitle>
+
+<main class="main lp-main">
+
+    @* HERO — the single white-bracket primary frame on the page *@
+    <section class="panel primary frame lp-hero">
+        <span class="cnr tl"></span><span class="cnr tr"></span>
+        <span class="cnr bl"></span><span class="cnr br"></span>
+        <div class="callsign" style="margin-bottom: var(--s-2)">
+            <span class="label">SUPERSTATUS</span><span class="sep">//</span><span class="value">operational telemetry, owned by you</span>
+        </div>
+        <h1>Status pages you <em>own.</em></h1>
+        <p class="lede">
+            A clean, modern status page for your services, incidents and uptime —
+            self-host it for free today. A fully-managed option,
+            <strong>SuperStatus Cloud</strong>, is coming soon.
+            No lock-in, no per-seat surprises.
+        </p>
+        <div class="lp-cta-row">
+            <a class="btn primary" href="https://status.superstatus.io" target="_blank" rel="noopener">Live demo →</a>
+            <a class="btn" href="#quickstart">Get started</a>
+        </div>
+    </section>
+
+    @* PREVIEW — framed screenshot of the live public dashboard *@
+    <section class="panel frame lp-preview">
+        <span class="cnr tl"></span><span class="cnr tr"></span>
+        <span class="cnr bl"></span><span class="cnr br"></span>
+        <div class="callsign">
+            <span class="label">LIVE PREVIEW</span><span class="sep">//</span><span class="value">your public dashboard</span>
+            <span class="meta">status.superstatus.io</span>
+        </div>
+        <a class="lp-preview-stage" href="https://status.superstatus.io" target="_blank" rel="noopener">
+            <img src="img/preview-dashboard.png" alt="SuperStatus public dashboard — services, uptime strips and incident log in a clean, modern interface" loading="lazy" />
+        </a>
+        <div class="lp-preview-cap">
+            <span>30-day uptime · live incidents · per-service latency</span>
+            <a href="https://status.superstatus.io" target="_blank" rel="noopener">View live demo →</a>
+        </div>
+    </section>
+
+    @* CAPABILITIES *@
+    <section class="lp-sec">
+        <div class="callsign">
+            <span class="label">CAPABILITIES</span><span class="sep">//</span><span class="value">what you get</span>
+        </div>
+        <div class="lp-feature-grid">
+            <div class="panel frame lp-feature">
+                <span class="cnr tl"></span><span class="cnr tr"></span><span class="cnr bl"></span><span class="cnr br"></span>
+                <span class="tag accent"><span class="led up"></span>UPTIME</span>
+                <h3>Uptime checks</h3>
+                <p>HTTP, TCP and keyword checks on your schedule, with 30-day history strips per service.</p>
+            </div>
+            <div class="panel frame lp-feature">
+                <span class="cnr tl"></span><span class="cnr tr"></span><span class="cnr bl"></span><span class="cnr br"></span>
+                <span class="tag"><span class="led down"></span>INCIDENTS</span>
+                <h3>Incident timeline</h3>
+                <p>Post incidents, track severity and resolution, and keep a public, honest history.</p>
+            </div>
+            <div class="panel frame lp-feature">
+                <span class="cnr tl"></span><span class="cnr tr"></span><span class="cnr bl"></span><span class="cnr br"></span>
+                <span class="tag accent">DESIGN</span>
+                <h3>Modern look &amp; feel</h3>
+                <p>A clean, modern interface that's easy to read at a glance — looks and feels the part, not another bland dashboard.</p>
+            </div>
+            <div class="panel frame lp-feature">
+                <span class="cnr tl"></span><span class="cnr tr"></span><span class="cnr bl"></span><span class="cnr br"></span>
+                <span class="tag accent">SOURCE</span>
+                <h3>Self-hostable</h3>
+                <p>One container stack, Docker-compose ready. Run it on your own infrastructure, free — source-available under the BSL.</p>
+            </div>
+            <div class="panel frame lp-feature">
+                <span class="cnr tl"></span><span class="cnr tr"></span><span class="cnr bl"></span><span class="cnr br"></span>
+                <span class="tag">YOURS</span>
+                <h3>No lock-in</h3>
+                <p>Your data, your domain. Source-available — export and walk away whenever you like.</p>
+            </div>
+            <div class="panel frame lp-feature">
+                <span class="cnr tl"></span><span class="cnr tr"></span><span class="cnr bl"></span><span class="cnr br"></span>
+                <span class="tag accent">THEME</span>
+                <h3>Light &amp; dark</h3>
+                <p>Follows the viewer's system theme; the status colours stay load-bearing on both.</p>
+            </div>
+        </div>
+    </section>
+
+    @* DEPLOYMENT — self-host vs hosted *@
+    <section class="lp-sec">
+        <div class="callsign">
+            <span class="label">DEPLOYMENT</span><span class="sep">//</span><span class="value">two ways to run it</span>
+        </div>
+        <div class="lp-deploy-grid">
+            <div class="panel frame lp-deploy">
+                <span class="cnr tl"></span><span class="cnr tr"></span><span class="cnr bl"></span><span class="cnr br"></span>
+                <span class="tag"><span class="led up"></span>SELF-HOST</span>
+                <h3>Run it yourself</h3>
+                <ul>
+                    <li>Your infrastructure, your rules</li>
+                    <li>Docker-compose, up in minutes</li>
+                    <li>Full source, unlimited checks</li>
+                    <li>Free, forever</li>
+                </ul>
+            </div>
+            <div class="panel frame lp-deploy">
+                <span class="cnr tl"></span><span class="cnr tr"></span><span class="cnr bl"></span><span class="cnr br"></span>
+                <span class="tag"><span class="led degraded"></span>SUPERSTATUS CLOUD</span>
+                <h3>Let us run it <span class="lp-soon">· coming soon</span></h3>
+                <ul>
+                    <li>We host, patch and update it</li>
+                    <li>Daily backups + TLS + custom domain</li>
+                    <li>No ops on your side</li>
+                    <li>Launching soon — join the waitlist</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
+    @* QUICK START — the one-line self-host installer *@
+    <section class="lp-sec" id="quickstart">
+        <div class="callsign">
+            <span class="label">QUICK START</span><span class="sep">//</span><span class="value">self-host in one line</span>
+        </div>
+        <div class="panel frame lp-install">
+            <span class="cnr tl"></span><span class="cnr tr"></span><span class="cnr bl"></span><span class="cnr br"></span>
+            <span class="tag accent"><span class="led up"></span>INSTALL</span>
+            <h3>Run the installer</h3>
+            <p>
+                On any host with <a href="https://docs.docker.com/engine/install/" target="_blank" rel="noopener">Docker</a>
+                and the Compose plugin, run:
+            </p>
+            <div class="lp-cmd">
+                <span class="lp-cmd-prompt">$</span>
+                <code>curl -fsSL https://superstatus.superstatus.io/install.sh | sh</code>
+            </div>
+            <p class="lp-install-note">
+                It pulls the latest release images, generates secrets, and brings the stack
+                up on plain HTTP over your LAN. When it finishes, open the printed
+                <code>http://&lt;your-server-ip&gt;:8080</code> and create your admin account.
+            </p>
+            <ul class="lp-install-steps">
+                <li>No build, no source checkout — prebuilt images, up in minutes</li>
+                <li>Update any time with <code>docker compose pull &amp;&amp; docker compose up -d</code></li>
+                <li>Internet-facing? Put it behind a TLS reverse proxy first</li>
+            </ul>
+            <div class="lp-cta-row">
+                <a class="btn" href="/install.sh" target="_blank" rel="noopener">View the script →</a>
+                <a class="btn lp-coffee" href="https://buymeacoffee.com/teriansilva" target="_blank" rel="noopener">
+                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
+                         stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                        <path d="M10 2v2" /><path d="M14 2v2" /><path d="M6 2v2" />
+                        <path d="M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1" />
+                    </svg>
+                    Buy me a coffee
+                </a>
+            </div>
+        </div>
+    </section>
+
+    @* PRICING *@
+    <section class="lp-sec" id="pricing">
+        <div class="callsign">
+            <span class="label">PRICING</span><span class="sep">//</span><span class="value">pick a lane</span>
+        </div>
+        <div class="lp-pricing-grid">
+
+            <div class="panel frame lp-price">
+                <span class="cnr tl"></span><span class="cnr tr"></span><span class="cnr bl"></span><span class="cnr br"></span>
+                <span class="lp-tier">Self-host</span>
+                <span class="lp-amount">€0 <small>/ forever</small></span>
+                <ul>
+                    <li>Your infrastructure</li>
+                    <li>Unlimited checks</li>
+                    <li>Full source code</li>
+                    <li>Community support</li>
+                </ul>
+                <a class="btn" href="#quickstart">Install it →</a>
+            </div>
+
+            <div class="panel frame lp-price lp-price-featured">
+                <span class="cnr tl"></span><span class="cnr tr"></span><span class="cnr bl"></span><span class="cnr br"></span>
+                <span class="lp-ribbon soon"><span class="led degraded"></span>Coming soon</span>
+                <span class="lp-tier">SuperStatus Cloud</span>
+                <span class="lp-amount">€9 <small>/ mo · planned</small></span>
+                <ul>
+                    <li>Everything in self-host</li>
+                    <li>We host &amp; update it</li>
+                    <li>Daily backups</li>
+                    <li>TLS + custom domain</li>
+                    <li>Email support</li>
+                </ul>
+                <a class="btn primary" href="mailto:hello@superstatus.io?subject=SuperStatus%20Cloud%20waitlist">Join the waitlist →</a>
+            </div>
+
+            <div class="panel frame lp-price">
+                <span class="cnr tl"></span><span class="cnr tr"></span><span class="cnr bl"></span><span class="cnr br"></span>
+                <span class="lp-tier">SuperStatus Cloud Pro <span class="lp-soon">· soon</span></span>
+                <span class="lp-amount">€29 <small>/ mo · planned</small></span>
+                <ul>
+                    <li>Everything in Cloud</li>
+                    <li>Managed AI — incident drafts &amp; summaries we run for you</li>
+                    <li>Worldwide monitoring — agents ping from many regions, not one</li>
+                    <li>More checks, history &amp; team seats</li>
+                    <li>Priority support</li>
+                </ul>
+                <a class="btn" href="mailto:hello@superstatus.io?subject=SuperStatus%20Cloud%20Pro%20waitlist">Join the waitlist →</a>
+            </div>
+
+        </div>
+    </section>
+
+    @* FAQ — common self-host questions, native <details> accordions (no JS) *@
+    <section class="lp-sec" id="faq">
+        <div class="callsign">
+            <span class="label">FAQ</span><span class="sep">//</span><span class="value">common questions</span>
+        </div>
+        <div class="panel frame lp-faq">
+            <span class="cnr tl"></span><span class="cnr tr"></span><span class="cnr bl"></span><span class="cnr br"></span>
+
+            <details class="lp-faq-item">
+                <summary>Is SuperStatus really free?</summary>
+                <div class="lp-faq-a">
+                    <p>
+                        Yes — self-hosting is free, forever, with the full source available under the
+                        <a href="https://github.com/teriansilva/superstatus" target="_blank" rel="noopener">BSL</a>.
+                        A fully-managed option, <strong>SuperStatus Cloud</strong>, is coming soon for people who'd
+                        rather not run it themselves.
+                    </p>
+                </div>
+            </details>
+
+            <details class="lp-faq-item">
+                <summary>What do I need to run it?</summary>
+                <div class="lp-faq-a">
+                    <p>
+                        A Linux host with <a href="https://docs.docker.com/engine/install/" target="_blank" rel="noopener">Docker</a>
+                        and the Compose plugin — the installer can set Docker up for you if it's missing. It runs the
+                        whole stack on plain HTTP over your LAN out of the box; no domain or TLS required to get started.
+                    </p>
+                </div>
+            </details>
+
+            <details class="lp-faq-item">
+                <summary>How do I install it?</summary>
+                <div class="lp-faq-a">
+                    <p>One line on any Docker host:</p>
+                    <div class="lp-cmd">
+                        <span class="lp-cmd-prompt">$</span>
+                        <code>curl -fsSL https://superstatus.superstatus.io/install.sh | sh</code>
+                    </div>
+                    <p>It pulls the latest release, generates secrets, and starts the stack. See <a href="#quickstart">Quick start</a> for details.</p>
+                </div>
+            </details>
+
+            <details class="lp-faq-item">
+                <summary>How do I update to the latest version?</summary>
+                <div class="lp-faq-a">
+                    <p>From your install directory, pull the new images and restart:</p>
+                    <div class="lp-cmd">
+                        <span class="lp-cmd-prompt">$</span>
+                        <code>docker compose pull &amp;&amp; docker compose up -d</code>
+                    </div>
+                    <p>Your data in the <code>pgdata</code> volume is preserved across updates.</p>
+                </div>
+            </details>
+
+            <details class="lp-faq-item">
+                <summary>How do I uninstall it?</summary>
+                <div class="lp-faq-a">
+                    <p>One line — the counterpart to the installer:</p>
+                    <div class="lp-cmd">
+                        <span class="lp-cmd-prompt">$</span>
+                        <code>curl -fsSL https://superstatus.superstatus.io/uninstall.sh | sh</code>
+                    </div>
+                    <p>
+                        It removes the containers, the database volume, the network, the images and the install files —
+                        after asking you to confirm, since it deletes your data. Prefer to do it by hand? From the install
+                        directory, <code>docker compose down -v</code> (the <code>-v</code> is what wipes the database).
+                        Either way, Docker itself is left installed.
+                    </p>
+                </div>
+            </details>
+
+            <details class="lp-faq-item">
+                <summary>Can I use my own domain and put it on the internet?</summary>
+                <div class="lp-faq-a">
+                    <p>
+                        Yes. The LAN default is plain HTTP for a trusted network; to expose it publicly, front it with a
+                        TLS reverse proxy (nginx, Caddy, Traefik…) terminating HTTPS for your domain. The
+                        <a href="https://github.com/teriansilva/superstatus/blob/main/docs/self-hosting.md" target="_blank" rel="noopener">self-hosting guide</a>
+                        walks through it.
+                    </p>
+                </div>
+            </details>
+
+            <details class="lp-faq-item">
+                <summary>Where's my data, and how do I back it up?</summary>
+                <div class="lp-faq-a">
+                    <p>
+                        Everything lives in the <code>pgdata</code> Docker volume. Back it up with
+                        <code>docker compose exec postgres pg_dumpall</code>. It's your data on your infrastructure —
+                        source-available, no lock-in, export and walk away whenever you like.
+                    </p>
+                </div>
+            </details>
+
+            <details class="lp-faq-item">
+                <summary>How do I get help or report a bug?</summary>
+                <div class="lp-faq-a">
+                    <p>
+                        Open an issue on
+                        <a href="https://github.com/teriansilva/superstatus" target="_blank" rel="noopener">GitHub</a>.
+                        For the managed tiers, email
+                        <a href="mailto:hello@superstatus.io">hello@superstatus.io</a>.
+                    </p>
+                </div>
+            </details>
+
+        </div>
+    </section>
+
+</main>

@@ -1,0 +1,192 @@
+@page "/ui-gallery"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.WebUtilities
+@using SuperStatus.Web.Components.Admin
+@using SuperStatus.Web.Components.StatusCheckOverview
+@using SuperStatus.Web.Components.IncidentOverview
+@using SuperStatus.Web.Components.Hud
+@using SuperStatus.Data.ViewModels
+@using SuperStatus.Data.Constants
+@attribute [AllowAnonymous]
+@inject IDialogService DialogService
+@inject NavigationManager Nav
+@inject IWebHostEnvironment Env
+
+@*
+    Issue #139 (P2 Phase 1): a Development-only UI gallery that renders real
+    surfaces with seeded sample data + no auth, so the Playwright harness
+    (web/visual/) can capture them at desktop/tablet/mobile for design review.
+    Inert outside Development (renders a notice). Drive via query string:
+
+      /ui-gallery?dialog=edit-check&state=invalid   dialog = edit-check | incident
+      /ui-gallery?area=operator                     #159: operator editing dashboard
+      /ui-gallery?area=plugins                      #367: plugin catalog + provider actions
+*@
+
+<PageTitle>UI Gallery (dev)</PageTitle>
+
+@if (!Env.IsDevelopment())
+{
+    <p style="padding:24px">The UI gallery is available only in the Development environment.</p>
+}
+else if (_area == "operator")
+{
+    @* #159 Phase 2: render the operator editing dashboard inline (anonymous,
+       demo-seeded) so the real manage components can be screenshotted without
+       the /admin [Authorize] gate. *@
+    <div class="admin-console">
+        <HudCallsign Label="CONSOLE" Value="Operator console" Meta="dev preview" />
+        <StatusCheckAdminList />
+        <IncidentList Manage="true" />
+    </div>
+}
+else if (_area == "settings")
+{
+    @* #167 Phase 2: the site-branding editor, anonymous + demo-seeded. The shell
+       around it (top-bar title + accent) is itself recoloured by demo mode, so a
+       single shot shows both the editor and the applied branding. *@
+    <div class="admin-console">
+        <HudCallsign Label="CONSOLE" Value="Site settings" Meta="dev preview" />
+        <SiteSettingsPanel />
+    </div>
+}
+else if (_area == "plugins")
+{
+    @* #367: plugin catalogue with Email Configure + Browser Push count/action,
+       anonymous and demo-seeded for the visual harness. *@
+    <Plugins />
+}
+else if (_area == "setup-wizard")
+{
+    @* #181 Phase 3: the first-run setup wizard (Welcome → branding → first
+       check → finish), demo-seeded + anonymous, for screenshots. *@
+    <SetupWizard />
+}
+else
+{
+    <div style="padding:24px;color:#a7abb3;font-family:'JetBrains Mono',monospace;font-size:13px">
+        UI gallery — dialog <strong>@_dialog</strong> / state <strong>@_state</strong>
+        — <span id="gallery-status" data-ready="@(_opened ? "true" : "false")">@(_opened ? "opened" : "opening…")</span>
+    </div>
+}
+
+@code {
+    private string _dialog = "edit-check";
+    private string _state = "default";
+    private string _area = "dialogs";
+    private bool _opened;
+
+    protected override void OnInitialized()
+    {
+        var q = QueryHelpers.ParseQuery(Nav.ToAbsoluteUri(Nav.Uri).Query);
+        _area = q.TryGetValue("area", out var a) ? a.ToString() : "dialogs";
+        _dialog = q.TryGetValue("dialog", out var d) ? d.ToString() : "edit-check";
+        _state = q.TryGetValue("state", out var s) ? s.ToString() : "default";
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Only the dialog gallery needs the post-render open; the full-page
+        // areas (operator, settings, …) render their components declaratively.
+        if (!firstRender || !Env.IsDevelopment() || _opened || _area != "dialogs") return;
+
+        var options = new DialogOptions { CloseOnEscapeKey = true, CloseButton = true };
+        if (_dialog == "confirm-delete")
+        {
+            // #164: the destructive confirm for deleting a status check.
+            var p = new DialogParameters<HudConfirmDialog>
+            {
+                { x => x.Title, "Delete Payments gateway?" },
+                { x => x.Tag, "Delete check" },
+                { x => x.Message, "This permanently deletes \"Payments gateway\" and all of its history — status ticks, daily rollups and webhook logs. This cannot be undone." },
+                { x => x.ConfirmText, "Delete" },
+                { x => x.Danger, true },
+            };
+            await DialogService.ShowAsync<HudConfirmDialog>("Delete check", p, options);
+        }
+        else if (_dialog == "incident")
+        {
+            var inc = SampleIncident(_state);
+            var p = new DialogParameters<IncidentEditDialog> { { x => x.Incident, inc } };
+            await DialogService.ShowAsync<IncidentEditDialog>(inc.Title, p, options);
+        }
+        else if (_dialog == "batch-add")
+        {
+            // #342: the batch-add dialog, seeded with a sample paste so the preview renders.
+            var p = new DialogParameters<BatchAddChecksDialog> { { x => x.SeedTargets, SampleBatchPaste } };
+            await DialogService.ShowAsync<BatchAddChecksDialog>("Batch add checks", p,
+                new DialogOptions { CloseOnEscapeKey = true, CloseButton = true, MaxWidth = MaxWidth.Small, FullWidth = true });
+        }
+        else if (_dialog == "email-settings")
+        {
+            await DialogService.ShowAsync<EmailPluginSettingsDialog>("Email settings",
+                new DialogOptions { CloseOnEscapeKey = true, CloseButton = true, MaxWidth = MaxWidth.Small, FullWidth = true });
+        }
+        else
+        {
+            var chk = SampleCheck(_state);
+            var p = new DialogParameters<StatusCheckEditDialog> { { x => x.StatusCheck, chk } };
+            await DialogService.ShowAsync<StatusCheckEditDialog>(
+                string.IsNullOrEmpty(chk.Title) ? "Add status check" : chk.Title, p, options);
+        }
+
+        _opened = true;
+        StateHasChanged();
+    }
+
+    private static StatusCheckViewModelBase SampleCheck(string state) => state switch
+    {
+        "invalid" => new StatusCheckViewModelBase
+        {
+            Title = "", StatusCheckUrl = "", ServiceLogoUrl = "",
+            ExpectedStatusCode = 200, IntervalSeconds = 30,
+            Enabled = true,
+        },
+        // #312: a check whose stored config can't be validated against its provider's
+        // schema — the dialog shows the calm "check disabled — fix config" banner.
+        "disabled" => new StatusCheckViewModelBase
+        {
+            Title = "Legacy TCP probe",
+            StatusCheckUrl = "tcp://db.example.com:5432",
+            ExpectedStatusCode = 200, IntervalSeconds = 30,
+            Enabled = true,
+            ProviderType = "tcp",
+            ConfigValid = false,
+            ConfigError = "unknown provider type 'tcp'",
+        },
+        _ => new StatusCheckViewModelBase
+        {
+            Title = "Acme Web Portal",
+            StatusCheckUrl = "https://web.example.com/health",
+            ServiceLogoUrl = "https://cdn.example.com/logo.png",
+            Description = "Primary customer-facing web portal.",
+            ExpectedStatusCode = 200, IntervalSeconds = 30,
+            Enabled = true,
+        },
+    };
+
+    // #342: a sample paste for the batch-add gallery shot — valid, duplicate, and
+    // invalid lines so the preview shows all three badges.
+    private const string SampleBatchPaste =
+        "https://web.example.com/health\n" +
+        "https://api.example.com/healthz\n" +
+        "https://checkout.example.com/status\n" +
+        "cdn.example.com/ping\n" +
+        "https://web.example.com/health\n" +   // duplicate
+        "http://";                             // invalid (no host)
+
+    private static IncidentViewModel SampleIncident(string state) => state == "resolved"
+        ? new IncidentViewModel
+        {
+            Title = "Elevated API latency",
+            Description = "p95 latency above threshold on the API tier. Mitigation deployed; monitoring recovery.",
+            Severity = IncidentSeverity.Severe, VisibleToPublic = true,
+            Resolved = true, ResolvedUtc = DateTime.UtcNow.AddHours(-2), Created = DateTime.UtcNow.AddHours(-5),
+        }
+        : new IncidentViewModel
+        {
+            Title = "Elevated API latency",
+            Description = "**p95 latency above threshold** on the API tier.\n\n- Rolled back the last deploy\n- Next update in `15 min`",
+            Severity = IncidentSeverity.Severe, VisibleToPublic = true, Created = DateTime.UtcNow.AddHours(-1),
+        };
+}

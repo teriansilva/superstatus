@@ -1,0 +1,512 @@
+@using SuperStatus.Data.ViewModels
+@using SuperStatus.Web.Components.Admin
+
+@inject StatusApiClient StatusApi
+@inject IDialogService DialogService
+
+@*
+    BatchAddChecksDialog (#342) — paste a list of targets, choose the monitoring
+    type / SLA / alerting ONCE, preview the derived checks, and create them all in
+    one submit. HUD-styled to match StatusCheckEditDialog (#336). Three sections:
+
+      TARGETS    — a textarea (one target per line; commas / whitespace also split)
+                   with a live parse summary + per-row preview (ok / duplicate /
+                   invalid). The client parse mirrors the server's canonicalisation,
+                   but the SERVER re-parses every line and is authoritative.
+      MONITORING — Type (batch-capable providers only), interval, the shared
+                   provider config fields (the target field is hidden — it comes
+                   from the paste), SLA, and a naming control (prefix + {host}
+                   template).
+      ALERTING   — webhook + alert-profile chip pickers, the three trigger fields,
+                   recovery / auto-incident / enabled — applied to every check.
+
+    Submit posts a BatchCreateChecksRequest to /statuscheck/batch and is disabled
+    while there are zero valid targets (or the batch is over the cap).
+*@
+<MudDialog Class="hud-dialog">
+    <TitleContent>
+        <div class="hud-dialog-head">
+            <span class="tag accent"><span class="led up"></span>BATCH ADD</span>
+            <span class="hud-dialog-name">Paste targets → create many checks</span>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        <div class="hud-dialog-section"><span class="sect-name">Targets</span></div>
+        <MudTextField T="string"
+                      Value="_rawTargets"
+                      ValueChanged="OnTargetsChanged"
+                      Immediate="true"
+                      Label="Paste one URL per line — commas / spaces also split"
+                      Class="chk-batch-targets"
+                      Lines="6"
+                      Placeholder="https://web.example.com/health&#10;https://api.example.com/healthz" />
+
+        @if (_preview.Count > 0)
+        {
+            <div class="batch-summary chk-batch-summary">
+                <span class="pill"><span class="dot ok"></span>@_validCount valid</span>
+                @if (_dupCount > 0)
+                {
+                    <span class="pill"><span class="dot dup"></span>@_dupCount duplicate</span>
+                }
+                @if (_invalidCount > 0)
+                {
+                    <span class="pill"><span class="dot bad"></span>@_invalidCount invalid</span>
+                }
+                <span class="count">will create <b>@_validCount</b> check@(_validCount == 1 ? "" : "s")</span>
+            </div>
+            <div class="batch-preview chk-batch-preview">
+                @foreach (var row in _preview)
+                {
+                    <div class="prow @(row.Kind == "ok" ? "" : "skip")">
+                        <span class="t">@(row.Kind == "ok" ? row.Title : row.Input)</span>
+                        <span class="u">@(row.Kind == "ok" ? row.Canonical : row.Reason)</span>
+                        <span class="badge @row.Kind">@row.Badge</span>
+                    </div>
+                }
+            </div>
+            <p class="hud-dialog-helper">
+                Invalid / duplicate lines are skipped — the valid remainder still creates.
+                The server re-parses every line.
+            </p>
+        }
+
+        <div class="hud-dialog-section">
+            <span class="sect-name">Monitoring</span>
+            <span class="sect-manage">applies to all @_validCount</span>
+        </div>
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="6">
+                <MudSelect T="string" Value="_providerType" ValueChanged="OnProviderTypeChanged"
+                           Label="Type" Class="chk-batch-type" Dense="true">
+                    @foreach (var p in _providers)
+                    {
+                        <MudSelectItem T="string" Value="@p.TypeId">@p.DisplayName</MudSelectItem>
+                    }
+                </MudSelect>
+                <p class="hud-dialog-helper">batch-capable providers only</p>
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <MudNumericField T="int" @bind-Value="_intervalSeconds" Label="Every"
+                                 Class="chk-batch-interval" Min="5" Max="3600" HideSpinButtons="true"
+                                 Adornment="Adornment.End" AdornmentText="s"
+                                 HelperText="How often each check runs (5–3600 s)." />
+            </MudItem>
+            @foreach (var field in _sharedFields)
+            {
+                <MudItem xs="12" sm="@(FieldSpan(field))" @key="field.Key">
+                    @switch (field.Kind)
+                    {
+                        case "select":
+                            <MudSelect T="string" Value="@GetCfg(field.Key)" ValueChanged="@(v => SetCfg(field.Key, v))"
+                                       Label="@field.Label" Dense="true" Class="@($"chk-batch-cfg-{field.Key}")">
+                                @foreach (var opt in field.Options)
+                                {
+                                    <MudSelectItem T="string" Value="@opt.Value">@opt.Label</MudSelectItem>
+                                }
+                            </MudSelect>
+                            break;
+                        case "bool":
+                            <MudCheckBox T="bool" Value="@GetCfgBool(field.Key)" ValueChanged="@(v => SetCfgBool(field.Key, v))"
+                                         Color="Color.Primary" Label="@field.Label" Class="@($"chk-batch-cfg-{field.Key}")" />
+                            break;
+                        case "secret":
+                            <MudTextField T="string" Value="@GetCfg(field.Key)" ValueChanged="@(v => SetCfg(field.Key, v))"
+                                          Label="@field.Label" InputType="InputType.Password"
+                                          Placeholder="@field.Placeholder" Class="@($"chk-batch-cfg-{field.Key}")" />
+                            break;
+                        case "number":
+                            <MudTextField T="string" Value="@GetCfg(field.Key)" ValueChanged="@(v => SetCfg(field.Key, v))"
+                                          Label="@field.Label" InputType="InputType.Number"
+                                          Placeholder="@field.Placeholder" Class="@($"chk-batch-cfg-{field.Key}")" />
+                            break;
+                        case "json":
+                            <MudTextField T="string" Value="@GetCfg(field.Key)" ValueChanged="@(v => SetCfg(field.Key, v))"
+                                          Label="@field.Label" Lines="7" AutoGrow="true"
+                                          Placeholder="@field.Placeholder" Class="@($"chk-batch-cfg-{field.Key}")" />
+                            break;
+                        default:
+                            <MudTextField T="string" Value="@GetCfg(field.Key)" ValueChanged="@(v => SetCfg(field.Key, v))"
+                                          Label="@field.Label" Placeholder="@field.Placeholder" Class="@($"chk-batch-cfg-{field.Key}")" />
+                            break;
+                    }
+                    @if (!string.IsNullOrWhiteSpace(field.Help))
+                    {
+                        <p class="hud-dialog-helper">@field.Help</p>
+                    }
+                </MudItem>
+            }
+            <MudItem xs="12" sm="6">
+                <div class="picker-row">
+                    <MudSelect T="long?" @bind-Value="_slaId" Label="SLA" Class="chk-batch-sla" Dense="true">
+                        @foreach (var sla in _slas)
+                        {
+                            <MudSelectItem T="long?" Value="@((long?)sla.Id)">@sla.Name@(sla.IsDefault ? " ★" : "")</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <button type="button" class="picker-add chk-batch-sla-new" @onclick="NewSlaAsync">+ New…</button>
+                </div>
+                <p class="hud-dialog-helper">defines slow threshold + day color tolerance</p>
+            </MudItem>
+            <MudItem xs="12" sm="6">
+                <div class="batch-naming">
+                    <MudTextField T="string" @bind-Value="_namePrefix" Label="Name prefix"
+                                  Class="chk-batch-prefix" Placeholder="optional" />
+                    <MudSelect T="string" @bind-Value="_nameTemplate" Label="Name from" Class="chk-batch-template" Dense="true">
+                        <MudSelectItem T="string" Value="@("{host}")">host</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("{host}{path}")">host + path</MudSelectItem>
+                    </MudSelect>
+                </div>
+                <p class="hud-dialog-helper">Preview: <span class="chk-batch-name-preview">@NamePreview()</span> — edit individually later.</p>
+            </MudItem>
+        </MudGrid>
+
+        <div class="hud-dialog-section">
+            <span class="sect-name">Alerting</span>
+            <span class="sect-manage">applies to all @_validCount</span>
+        </div>
+        <MudGrid Spacing="2">
+            <MudItem xs="12">
+                <div class="picker-label">Webhooks — fire on failure</div>
+                <div class="picker-chips chk-batch-webhooks">
+                    @foreach (var w in _webhooks)
+                    {
+                        <button type="button" class="pick-chip @(_webhookIds.Contains(w.Id) ? "on" : "")"
+                                @onclick="() => ToggleWebhook(w.Id)">
+                            @w.Name@(_webhookIds.Contains(w.Id) ? " ×" : "")
+                        </button>
+                    }
+                    <button type="button" class="picker-add chk-batch-webhook-new" @onclick="NewWebhookAsync">+ New…</button>
+                </div>
+            </MudItem>
+            <MudItem xs="12">
+                <div class="picker-label">Alert profiles — who gets notified</div>
+                <div class="picker-chips chk-batch-profiles">
+                    @foreach (var p in _profiles)
+                    {
+                        <button type="button" class="pick-chip @(_profileIds.Contains(p.Id) ? "on" : "")"
+                                @onclick="() => ToggleProfile(p.Id)">
+                            @p.Name@(_profileIds.Contains(p.Id) ? " ×" : "")
+                        </button>
+                    }
+                    <button type="button" class="picker-add chk-batch-profile-new" @onclick="NewProfileAsync">+ New…</button>
+                </div>
+            </MudItem>
+            <MudItem xs="12">
+                <div class="trigger-grid chk-batch-trigger">
+                    <MudNumericField T="int" @bind-Value="_alertOnFailureThreshold" Label="Alert after"
+                                     Adornment="Adornment.End" AdornmentText="fails"
+                                     Min="0" Margin="Margin.Dense" HideSpinButtons="true" />
+                    <MudNumericField T="int" @bind-Value="_alertOnOutageMinutes" Label="Or down for"
+                                     Adornment="Adornment.End" AdornmentText="min"
+                                     Min="0" Margin="Margin.Dense" HideSpinButtons="true" />
+                    <MudNumericField T="int" @bind-Value="_alertThrottleMinutes" Label="Throttle"
+                                     Adornment="Adornment.End" AdornmentText="min"
+                                     Min="0" Margin="Margin.Dense" HideSpinButtons="true" />
+                </div>
+                <p class="hud-dialog-helper">0 = off · applies to every linked webhook / profile</p>
+            </MudItem>
+            <MudItem xs="12">
+                <div class="chk-optins">
+                    <MudCheckBox T="bool" @bind-Value="_alertOnRecovery" Color="Color.Primary" Label="Notify on recovery" />
+                    <MudCheckBox T="bool" @bind-Value="_autoIncidentEnabled" Color="Color.Primary" Label="Auto-draft incident if down persists" />
+                    <MudCheckBox T="bool" @bind-Value="_enabled" Color="Color.Primary" Label="Enabled on create" />
+                </div>
+            </MudItem>
+        </MudGrid>
+
+        @if (_error is not null)
+        {
+            <p class="hud-dialog-error chk-batch-error">@_error</p>
+        }
+        else if (_validCount > 0 && MissingRequiredSharedField() is { } missing)
+        {
+            <p class="hud-dialog-error chk-batch-error">Fill in the required field “@missing” — it applies to every check.</p>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Variant="Variant.Outlined" Color="Color.Secondary">Cancel</MudButton>
+        <MudButton OnClick="SubmitAsync" Disabled="@(_submitting || _validCount == 0 || _overCap || MissingRequiredSharedField() is not null)"
+                   Color="Color.Primary" Variant="Variant.Filled" Class="chk-batch-submit">
+            @(_submitting ? "Creating…" : $"Create {_validCount} check{(_validCount == 1 ? "" : "s")}")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    /// <summary>Optional pre-filled paste, used by the dev UI gallery so the preview
+    /// renders for screenshots. Null in normal operator use.</summary>
+    [Parameter] public string? SeedTargets { get; set; }
+
+    /// <summary>Client-side cap mirroring BatchCheckCreationService.MaxBatchSize.</summary>
+    private const int MaxBatchSize = 200;
+
+    private List<SlaViewModel> _slas = new();
+    private List<WebhookViewModel> _webhooks = new();
+    private List<AlertProfileViewModel> _profiles = new();
+
+    // batch-capable providers only (BatchTargetField != null)
+    private List<ProviderDescriptorViewModel> _providers = new();
+    private string _providerType = "http";
+    private string _targetField = "url";
+    private List<ProviderConfigFieldViewModel> _sharedFields = new();
+    private readonly Dictionary<string, string> _sharedConfig = new();
+
+    private string _rawTargets = string.Empty;
+    private List<PreviewRow> _preview = new();
+    private int _validCount, _dupCount, _invalidCount;
+    private bool _overCap;
+
+    // shared settings applied to every created check
+    private int _intervalSeconds = 60;
+    private long? _slaId;
+    private readonly HashSet<long> _webhookIds = new();
+    private readonly HashSet<long> _profileIds = new();
+    private int _alertOnFailureThreshold, _alertOnOutageMinutes, _alertThrottleMinutes;
+    private bool _alertOnRecovery, _autoIncidentEnabled;
+    private bool _enabled = true;
+    private string? _namePrefix;
+    private string _nameTemplate = "{host}";
+
+    private bool _submitting;
+    private string? _error;
+
+    private static int FieldSpan(ProviderConfigFieldViewModel field)
+        => field.Kind is "number" or "select" or "bool" ? 6 : 12;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _slas = await StatusApi.GetSlasAsync();
+        _webhooks = await StatusApi.GetWebhooksAsync();
+        _profiles = await StatusApi.GetAlertProfilesAsync();
+
+        // Only providers that declare a batch target field can be batch-added. If the
+        // providers endpoint is unreachable, fall back to the built-in http shape so the
+        // dialog still renders (mirrors StatusCheckEditDialog's resilience).
+        _providers = (await StatusApi.GetCheckProvidersAsync())
+            .Where(p => !string.IsNullOrEmpty(p.BatchTargetField))
+            .ToList();
+        if (_providers.Count == 0) _providers = new() { DefaultHttpDescriptor() };
+
+        _providerType = _providers[0].TypeId;
+        ApplyProvider(_providers[0]);
+        _slaId = _slas.FirstOrDefault(s => s.IsDefault)?.Id;
+
+        if (!string.IsNullOrEmpty(SeedTargets))
+        {
+            _rawTargets = SeedTargets;
+            RecomputePreview();
+        }
+    }
+
+    // A static http descriptor (with the batch target field) used only if the providers
+    // endpoint is unreachable, so the batch dialog degrades gracefully.
+    private static ProviderDescriptorViewModel DefaultHttpDescriptor() => new()
+    {
+        TypeId = "http",
+        DisplayName = "HTTP(S)",
+        Icon = "link",
+        SchemaVersion = 1,
+        BatchTargetField = "url",
+        Fields = new()
+        {
+            new() { Key = "url", Label = "URL", Kind = "text", Required = true },
+            new() { Key = "expectedStatusCode", Label = "Expected status", Kind = "number", Required = true, Placeholder = "200" },
+        },
+    };
+
+    private void ApplyProvider(ProviderDescriptorViewModel provider)
+    {
+        _targetField = provider.BatchTargetField ?? "url";
+        _sharedFields = provider.Fields.Where(f => f.Key != _targetField).ToList();
+        _sharedConfig.Clear();
+        foreach (var f in _sharedFields)
+            _sharedConfig[f.Key] = f.Key == "expectedStatusCode" ? "200" : string.Empty;
+    }
+
+    private void OnProviderTypeChanged(string typeId)
+    {
+        _providerType = typeId;
+        var provider = _providers.FirstOrDefault(p => p.TypeId == typeId);
+        if (provider is not null) ApplyProvider(provider);
+    }
+
+    private void OnTargetsChanged(string value)
+    {
+        _rawTargets = value;
+        RecomputePreview();
+    }
+
+    private void RecomputePreview()
+    {
+        var rows = new List<PreviewRow>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        int valid = 0, dup = 0, invalid = 0, nonBlank = 0;
+
+        foreach (var raw in SplitLines(_rawTargets))
+        {
+            nonBlank++;
+            if (!TryCanonicalize(raw, out var canonical, out var error))
+            {
+                invalid++;
+                rows.Add(new PreviewRow(raw, null, null, "bad", "skip", error ?? "invalid target"));
+                continue;
+            }
+            if (!seen.Add(canonical))
+            {
+                dup++;
+                rows.Add(new PreviewRow(raw, null, canonical, "dup", "dup", "duplicate in paste"));
+                continue;
+            }
+            valid++;
+            rows.Add(new PreviewRow(raw, BuildTitle(canonical), canonical, "ok", "ok", null));
+        }
+
+        _preview = rows;
+        _validCount = valid;
+        _dupCount = dup;
+        _invalidCount = invalid;
+        _overCap = nonBlank > MaxBatchSize;
+        _error = _overCap ? $"Too many targets: {nonBlank} (max {MaxBatchSize} per batch)." : null;
+    }
+
+    private static IEnumerable<string> SplitLines(string raw)
+        => (raw ?? string.Empty)
+            .Split(new[] { '\n', '\r', ',', '\t', ' ' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    // Mirrors BatchTargetParsing.TryParseUrlTarget so the preview matches the server.
+    private static bool TryCanonicalize(string line, out string canonical, out string? error)
+    {
+        canonical = string.Empty;
+        error = null;
+        var s = (line ?? string.Empty).Trim();
+        if (s.Length == 0) { error = "empty line"; return false; }
+        if (!s.Contains("://", StringComparison.Ordinal)) s = "https://" + s;
+        if (!Uri.TryCreate(s, UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
+            || string.IsNullOrEmpty(uri.Host))
+        {
+            error = "not a valid http(s) URL";
+            return false;
+        }
+        var path = uri.AbsolutePath;
+        path = path == "/" ? string.Empty : path.TrimEnd('/');
+        canonical = $"{uri.Scheme}://{uri.Authority}{path}{uri.Query}";
+        return true;
+    }
+
+    private string BuildTitle(string canonical)
+    {
+        string host = Uri.TryCreate(canonical, UriKind.Absolute, out var uri) && !string.IsNullOrEmpty(uri.Host) ? uri.Host : canonical;
+        string body = _nameTemplate == "{host}{path}" && uri is not null && uri.AbsolutePath != "/"
+            ? host + uri.AbsolutePath
+            : host;
+        return string.IsNullOrWhiteSpace(_namePrefix) ? body : _namePrefix + body;
+    }
+
+    private string NamePreview()
+        => _preview.FirstOrDefault(r => r.Kind == "ok")?.Title
+           ?? BuildTitle("https://web.example.com/health");
+
+    // Client-side parity with the server's schema validation: a required shared field
+    // (e.g. an AI batch's model / prompt) must be filled, else every created check would
+    // resolve as invalid. Returns the first missing field's label, or null when all are set.
+    private string? MissingRequiredSharedField()
+    {
+        foreach (var f in _sharedFields)
+            if (f.Required && string.IsNullOrWhiteSpace(GetCfg(f.Key)))
+                return f.Label;
+        return null;
+    }
+
+    private string GetCfg(string key) => _sharedConfig.TryGetValue(key, out var v) ? v : string.Empty;
+    private void SetCfg(string key, string? val) => _sharedConfig[key] = val ?? string.Empty;
+    private bool GetCfgBool(string key) => GetCfg(key).Equals("true", StringComparison.OrdinalIgnoreCase);
+    private void SetCfgBool(string key, bool val) => SetCfg(key, val ? "true" : "false");
+
+    private void ToggleWebhook(long id) { if (!_webhookIds.Remove(id)) _webhookIds.Add(id); }
+    private void ToggleProfile(long id) { if (!_profileIds.Remove(id)) _profileIds.Add(id); }
+
+    private async Task NewSlaAsync()
+    {
+        var parameters = new DialogParameters<SlaEditDialog> { { x => x.Sla, new SlaViewModel() } };
+        var dialog = await DialogService.ShowAsync<SlaEditDialog>("Add SLA", parameters, QuickCreateOptions);
+        if ((await dialog.Result) is { Canceled: false, Data: SlaViewModel saved })
+        {
+            _slas = await StatusApi.GetSlasAsync();
+            _slaId = saved.Id;
+            StateHasChanged();
+        }
+    }
+
+    private async Task NewWebhookAsync()
+    {
+        var parameters = new DialogParameters<WebhookEditDialog> { { x => x.Webhook, new WebhookViewModel() } };
+        var dialog = await DialogService.ShowAsync<WebhookEditDialog>("Add webhook", parameters, QuickCreateOptions);
+        if ((await dialog.Result) is { Canceled: false, Data: WebhookViewModel saved })
+        {
+            _webhooks = await StatusApi.GetWebhooksAsync();
+            _webhookIds.Add(saved.Id);
+            StateHasChanged();
+        }
+    }
+
+    private async Task NewProfileAsync()
+    {
+        var parameters = new DialogParameters<AlertProfileEditDialog> { { x => x.Profile, new AlertProfileViewModel() } };
+        var dialog = await DialogService.ShowAsync<AlertProfileEditDialog>("Add alert profile", parameters, QuickCreateOptions);
+        if ((await dialog.Result) is { Canceled: false, Data: AlertProfileViewModel saved })
+        {
+            _profiles = await StatusApi.GetAlertProfilesAsync();
+            _profileIds.Add(saved.Id);
+            StateHasChanged();
+        }
+    }
+
+    private static DialogOptions QuickCreateOptions => new() { CloseOnEscapeKey = true, CloseButton = true };
+
+    private async Task SubmitAsync()
+    {
+        if (_validCount == 0 || _overCap) return;
+        var request = new BatchCreateChecksRequest
+        {
+            ProviderType = _providerType,
+            Targets = SplitLines(_rawTargets).ToList(),
+            SharedConfig = new Dictionary<string, string>(_sharedConfig),
+            IntervalSeconds = _intervalSeconds,
+            SlaId = _slaId,
+            WebhookIds = _webhookIds.ToList(),
+            AlertProfileIds = _profileIds.ToList(),
+            AlertOnFailureThreshold = _alertOnFailureThreshold,
+            AlertOnOutageMinutes = _alertOnOutageMinutes,
+            AlertThrottleMinutes = _alertThrottleMinutes,
+            AlertOnRecovery = _alertOnRecovery,
+            AutoIncidentEnabled = _autoIncidentEnabled,
+            Enabled = _enabled,
+            NamePrefix = _namePrefix,
+            NameTemplate = _nameTemplate,
+        };
+
+        _submitting = true;
+        _error = null;
+        try
+        {
+            var result = await StatusApi.BatchCreateChecksAsync(request);
+            MudDialog.Close(DialogResult.Ok(result));
+        }
+        catch (Exception ex)
+        {
+            _error = $"Batch create failed: {ex.Message}";
+        }
+        finally
+        {
+            _submitting = false;
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private sealed record PreviewRow(string Input, string? Title, string? Canonical, string Kind, string Badge, string? Reason);
+}

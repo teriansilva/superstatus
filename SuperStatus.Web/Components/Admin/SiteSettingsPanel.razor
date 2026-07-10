@@ -1,0 +1,308 @@
+@*
+    SiteSettingsPanel — issue #167 Phase 2 + #170 footer.
+
+    Operator editor for the site settings singleton — branding (title / logo /
+    accent) and the footer (text / links / Admin-link toggle) — over the /settings
+    API. Lives on the [Authorize] admin console. A successful save forces a full
+    reload so the SiteSettingsProvider re-reads everything and the recolor / title
+    / logo / footer apply immediately. The API is the validation authority (accent
+    → #rrggbb or default, logo + link URLs → http(s) or dropped); this panel only
+    mirrors that intent in the UI.
+*@
+@using SuperStatus.Data.ViewModels
+@using SuperStatus.ServiceDefaults
+@using SuperStatus.Web.Components.Hud
+@inject SettingsApiClient SettingsApi
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
+@inject IssuerModeInfo IssuerMode
+
+<HudPanel Accent="primary" ExtraClass="settings-frame">
+    <HudCallsign Label="SETTINGS" Value="Site settings" Meta="branding, footer, AI" />
+
+    @if (_model is null)
+    {
+        <p class="admin-note">Loading branding settings…</p>
+    }
+    else
+    {
+        <div class="settings-grid">
+            <label class="settings-field">
+                <span class="settings-label">Site title</span>
+                <input class="settings-input" type="text" maxlength="120" @bind="_model.Title"
+                       placeholder="e.g. Acme Service Status" />
+                <span class="settings-hint">Shown as the wordmark in the top bar. Blank keeps the default SUPER//STATUS mark.</span>
+            </label>
+
+            <label class="settings-field">
+                <span class="settings-label">Subtitle</span>
+                <input class="settings-input" type="text" maxlength="160" @bind="_model.Subtitle"
+                       placeholder="e.g. Acme Service Status Information" />
+                <span class="settings-hint">The line beside the wordmark. Blank falls back to the configured description.</span>
+            </label>
+
+            <label class="settings-field">
+                <span class="settings-label">Logo URL</span>
+                <input class="settings-input" type="url" @bind="_model.LogoUrl"
+                       placeholder="https://cdn.example.com/logo.svg" />
+                <span class="settings-hint">Optional. Must be an http(s) URL — other schemes are cleared on save.</span>
+            </label>
+
+            <div class="settings-field">
+                <span class="settings-label">Accent colour</span>
+                <div class="settings-accent">
+                    <input class="settings-swatch" type="color" aria-label="Accent colour picker"
+                           @bind="_model.AccentColor" />
+                    <input class="settings-input settings-hex" type="text" maxlength="7"
+                           aria-label="Accent hex value" @bind="_model.AccentColor" />
+                    <span class="settings-accent-preview" style="@PreviewStyle">PREVIEW</span>
+                </div>
+                <span class="settings-hint">#rrggbb. Recolours the HUD chrome only — status colours (up / degraded / down) never change.</span>
+            </div>
+        </div>
+
+        @* #170: footer customization. *@
+        <div class="settings-section">
+            <span class="settings-label">Footer text</span>
+            <input class="settings-input" type="text" maxlength="200" @bind="_model.FooterText"
+                   placeholder="e.g. UNCLASSIFIED // INTERNAL USE" />
+            <span class="settings-hint">The static footer line — replaces the old rotating classification.</span>
+
+            <span class="settings-label settings-sublabel">Footer links</span>
+            @foreach (var link in _model.FooterLinks)
+            {
+                <div class="settings-linkrow">
+                    <input class="settings-input" type="text" maxlength="60" placeholder="Label" @bind="link.Label" />
+                    <input class="settings-input" type="url" placeholder="https://…" @bind="link.Url" />
+                    <button class="btn" type="button" @onclick="@(() => RemoveLink(link))" aria-label="Remove link">✕</button>
+                </div>
+            }
+            <div class="settings-linkactions">
+                <button class="btn" type="button" @onclick="AddLink" disabled="@(_model.FooterLinks.Count >= 8)">+ Add link</button>
+            </div>
+            <span class="settings-hint">Up to 8. Each needs a label + an http(s) URL; invalid links are dropped on save. Links open in a new tab (rel="noopener").</span>
+
+            <label class="settings-check">
+                <input type="checkbox" @bind="_model.ShowAdminLink" />
+                <span>Show the Admin / Operator-console link in the footer</span>
+            </label>
+        </div>
+
+        @* #168: AI / automation — drafts an incident automatically when a check
+           opted in (per-check toggle in the edit dialog) stays down past the
+           threshold. Off by default; degrades to a templated incident if the
+           model is unreachable. *@
+        <div class="settings-section">
+            <span class="settings-label">AI / Automation</span>
+            <label class="settings-check">
+                <input type="checkbox" @bind="_model.AiEnabled" />
+                <span>Enable AI-authored incidents on sustained downtime</span>
+            </label>
+            <span class="settings-hint">Uses an OpenAI-compatible endpoint to draft an incident title/description when an opted-in check is down past the threshold. Requires a base URL + model below; the public status colours never change.</span>
+
+            <div class="settings-grid settings-ai">
+                <label class="settings-field">
+                    <span class="settings-label">Inference base URL</span>
+                    <input class="settings-input" type="url" @bind="_model.AiBaseUrl"
+                           placeholder="https://gateway.example.com/v1" />
+                    <span class="settings-hint">OpenAI-compatible root; <code>/chat/completions</code> is appended. http(s) only.</span>
+                </label>
+
+                <label class="settings-field">
+                    <span class="settings-label">Model</span>
+                    <input class="settings-input" type="text" maxlength="120" @bind="_model.AiModel"
+                           placeholder="e.g. gpt-4o-mini" />
+                    <span class="settings-hint">Model name passed to the endpoint.</span>
+                </label>
+
+                <label class="settings-field">
+                    <span class="settings-label">API key</span>
+                    <input class="settings-input" type="password" autocomplete="new-password" @bind="_model.AiApiKey"
+                           placeholder="@KeyPlaceholder" />
+                    <span class="settings-hint">@KeyHint</span>
+                </label>
+
+                <label class="settings-field">
+                    <span class="settings-label">Timeout (seconds)</span>
+                    <input class="settings-input" type="number" min="5" max="120" @bind="_model.AiTimeoutSeconds" />
+                    <span class="settings-hint">Per-request inference timeout (5–120). A slow model never stalls checks.</span>
+                </label>
+
+                <label class="settings-field">
+                    <span class="settings-label">Downtime threshold (minutes)</span>
+                    <input class="settings-input" type="number" min="1" max="1440" @bind="_model.AutoIncidentThresholdMinutes" />
+                    <span class="settings-hint">How long a check must stay down before an incident is drafted (1–1440). Default per check; the check must also opt in.</span>
+                </label>
+            </div>
+
+            <label class="settings-field settings-promptfield">
+                <span class="settings-label">Prompt</span>
+                <textarea class="settings-input settings-prompt" rows="7" maxlength="4000" @bind="_model.AiPromptTemplate"></textarea>
+                <span class="settings-hint">The exact instruction sent to the model. Placeholders <code>{service}</code> <code>{url}</code> <code>{downSince}</code> <code>{minutes}</code> <code>{symptom}</code> are filled per incident. Leave as-is (or clear) to use the built-in default; the model is always constrained to return JSON.</span>
+            </label>
+        </div>
+
+        <div class="settings-actions">
+            <button class="btn primary" type="button" @onclick="Save" disabled="@_saving">
+                @(_saving ? "Saving…" : "Save settings")
+            </button>
+        </div>
+
+        @* #358: Access & security — the allowed sign-in hosts allowlist. Only shown
+           in the self-host dynamic-issuer mode; in pinned cloud mode the issuer is
+           fixed and this is irrelevant. Saved via its own endpoint so a branding/AI
+           save can never clear it. *@
+        @if (IssuerMode.IsDynamic)
+        {
+            <div class="settings-section">
+                <span class="settings-label">Access &amp; security — allowed sign-in hosts</span>
+                <span class="settings-hint">
+                    The public address(es) users reach this server at — an IP or a hostname,
+                    optionally with a port (e.g. <code>status.example.com</code> or
+                    <code>20.106.154.24:8081</code>). Leave empty to accept any address
+                    (relaxed). Once set, only these are honoured as the login issuer.
+                </span>
+
+                @foreach (var host in _model.AllowedAuthHosts)
+                {
+                    <div class="settings-linkrow">
+                        <input class="settings-input" type="text" value="@host" readonly style="min-width:0" />
+                        <button class="btn" type="button" @onclick="@(() => RemoveHost(host))" aria-label="Remove host">✕</button>
+                    </div>
+                }
+
+                <div class="settings-linkrow">
+                    <input class="settings-input" type="text" @bind="_newHost" @bind:event="oninput"
+                           placeholder="status.example.com or 20.106.154.24:8081"
+                           style="min-width:0;overflow-wrap:anywhere"
+                           @onkeydown="@(e => { if (e.Key == "Enter") AddHost(); })" />
+                    <button class="btn" type="button" @onclick="AddHost">+ Add</button>
+                </div>
+
+                @if (_model.AllowedAuthHosts.Count == 0)
+                {
+                    <span class="settings-hint"><em>No hosts pinned — accepting any address (relaxed).</em></span>
+                }
+
+                <div class="settings-linkactions">
+                    <button class="btn primary" type="button" @onclick="SaveAuthHosts" disabled="@_savingHosts">
+                        @(_savingHosts ? "Saving…" : "Save allowed hosts")
+                    </button>
+                </div>
+            </div>
+        }
+    }
+</HudPanel>
+
+@code {
+    private SiteSettingsViewModel? _model;
+    private bool _saving;
+    private bool _savingHosts;
+    private string _newHost = string.Empty;
+
+
+    private string PreviewStyle =>
+        $"color:{_model?.AccentColor};border-color:{_model?.AccentColor};";
+
+    // #168: the API key is write-only — never pre-filled. The placeholder/hint
+    // reflect whether one is already stored so the operator can leave it blank
+    // to keep the existing key, or type to replace it.
+    private string KeyPlaceholder => _model?.AiApiKeySet == true ? "•••••••• (stored)" : "optional — depends on the gateway";
+    private string KeyHint => _model?.AiApiKeySet == true
+        ? "A key is stored. Leave blank to keep it, or type a new value to replace it."
+        : "Sent as a Bearer token. Leave blank if the gateway needs no key. Never shown back after saving.";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var current = await SettingsApi.GetSettingsAsync();
+        _model = new SiteSettingsViewModel
+        {
+            Title = current.Title,
+            Subtitle = current.Subtitle,
+            LogoUrl = current.LogoUrl,
+            AccentColor = string.IsNullOrWhiteSpace(current.AccentColor) ? "#3fbf6f" : current.AccentColor,
+            FooterText = current.FooterText,
+            // Clone so edits/removes don't mutate the fetched instance.
+            FooterLinks = current.FooterLinks.Select(l => new FooterLink { Label = l.Label, Url = l.Url }).ToList(),
+            ShowAdminLink = current.ShowAdminLink,
+            // #168: AI / automation. AiApiKey is never echoed by the API (always
+            // null here); AiApiKeySet tells the UI whether one is stored so the
+            // operator can leave the field blank to keep it.
+            AiEnabled = current.AiEnabled,
+            AiBaseUrl = current.AiBaseUrl,
+            AiModel = current.AiModel,
+            AiApiKey = null,
+            AiApiKeySet = current.AiApiKeySet,
+            AiTimeoutSeconds = current.AiTimeoutSeconds,
+            AutoIncidentThresholdMinutes = current.AutoIncidentThresholdMinutes,
+            // The API returns the effective prompt (default when unset) so the
+            // operator sees + can edit exactly what the model is asked.
+            AiPromptTemplate = current.AiPromptTemplate,
+            // #358: clone the allowlist so add/remove don't mutate the fetched copy.
+            AllowedAuthHosts = current.AllowedAuthHosts.ToList(),
+        };
+    }
+
+    // #358: validate + normalize with the shared helper (same contract the server
+    // enforces) so an invalid entry is rejected inline rather than silently dropped
+    // on save. Blazor Server runs the same C#, so there's no client/server drift.
+    private void AddHost()
+    {
+        if (_model is null) return;
+        var canonical = AuthHostAllowlist.Canonical(_newHost);
+        if (canonical is null)
+        {
+            Snackbar.Add("Enter a valid host or host:port (an IP or a hostname).", Severity.Warning);
+            return;
+        }
+        if (!_model.AllowedAuthHosts.Contains(canonical, StringComparer.OrdinalIgnoreCase))
+            _model.AllowedAuthHosts.Add(canonical);
+        _newHost = string.Empty;
+    }
+
+    private void RemoveHost(string host) => _model?.AllowedAuthHosts.Remove(host);
+
+    private async Task SaveAuthHosts()
+    {
+        if (_model is null || _savingHosts) return;
+        _savingHosts = true;
+        try
+        {
+            await SettingsApi.SaveAuthHostsSettingsAsync(_model);
+            Snackbar.Add("Allowed sign-in hosts saved.", Severity.Success);
+            // Full reload so the unpinned-issuer banner re-evaluates + clears.
+            Nav.NavigateTo("/admin", forceLoad: true);
+        }
+        catch (Exception ex)
+        {
+            _savingHosts = false;
+            Snackbar.Add($"Could not save allowed hosts: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private void AddLink()
+    {
+        if (_model is null || _model.FooterLinks.Count >= 8) return;
+        _model.FooterLinks.Add(new FooterLink());
+    }
+
+    private void RemoveLink(FooterLink link) => _model?.FooterLinks.Remove(link);
+
+    private async Task Save()
+    {
+        if (_model is null || _saving) return;
+        _saving = true;
+        try
+        {
+            await SettingsApi.SaveSettingsAsync(_model);
+            Snackbar.Add("Site settings saved — applying…", Severity.Success);
+            // Full reload so SiteSettingsProvider re-reads + re-applies the accent.
+            Nav.NavigateTo("/admin", forceLoad: true);
+        }
+        catch (Exception ex)
+        {
+            _saving = false;
+            Snackbar.Add($"Could not save settings: {ex.Message}", Severity.Error);
+        }
+    }
+}

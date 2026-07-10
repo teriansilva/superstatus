@@ -1,0 +1,138 @@
+name: superstatus-demo
+
+# Public demo deployment — issue #377.
+# Reachable at https://demo.status.superstatus.io / https://id.demo.status.superstatus.io
+# via the ro-loadbalancer (192.168.15.5) → 192.168.15.10:{8195,8196}.
+#
+# This environment is DISPOSABLE. A systemd timer on the docker host runs
+# scripts/demo-reset.sh at the top of every hour, which `docker compose down -v`s
+# the whole project (destroying pgdata + both DataProtection keyrings), pulls the
+# latest RELEASED images, and brings it back up. Identity then re-seeds the
+# well-known demo administrator and the API re-seeds the sample checks.
+#
+# PUBLIC_DEMO=true is what makes the login page advertise admin@superstatus.io /
+# admin and puts the reset countdown banner on every page. It appears in THIS FILE
+# AND NOWHERE ELSE — not in docker-compose.yml, .staging.yml, .prod.yml,
+# .env.example, or install.sh. DemoComposeTests enforces that.
+
+x-aspnet-env: &aspnet-env
+  ASPNETCORE_ENVIRONMENT: Production
+  ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
+
+x-healthcheck: &http-health
+  test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+  interval: 10s
+  timeout: 5s
+  retries: 12
+  start_period: 60s
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    # Same rationale as staging: the API's status-check scheduler holds a scoped
+    # SuperStatusDb per in-flight check, and Identity has its own pool.
+    command: ["postgres", "-c", "max_connections=200"]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [internal]
+
+  identity:
+    # :latest — the last tagged release, NOT :edge. The demo showcases shipped
+    # software. A `main` change is not visible here until a release is cut.
+    image: ghcr.io/teriansilva/superstatus-identity:${SUPERSTATUS_VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      <<: *aspnet-env
+      ConnectionStrings__SuperStatusIdentityDb: "Host=postgres;Database=SuperStatusIdentityDb;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};Maximum Pool Size=20;Connection Idle Lifetime=30"
+      WEBAPP_HTTP: ${WEBAPP_HTTP}
+      OIDC_WEB_CLIENT_SECRET: ${OIDC_WEB_CLIENT_SECRET}
+      APPLY_MIGRATIONS: "true"
+      DATAPROTECTION_KEYS_DIR: /keys
+      # #377: seeds the well-known demo administrator on an empty user table, and
+      # renders the credentials panel on /Identity/Account/Login.
+      PUBLIC_DEMO: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck: *http-health
+    volumes:
+      - identity-dpkeys:/keys
+    ports:
+      - "8196:8080"
+    networks: [internal]
+
+  api:
+    image: ghcr.io/teriansilva/superstatus-api:${SUPERSTATUS_VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      <<: *aspnet-env
+      ConnectionStrings__SuperStatusDb: "Host=postgres;Database=SuperStatusDb;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};Maximum Pool Size=20;Connection Idle Lifetime=30"
+      IDP_HTTP: ${IDP_HTTP}
+      APPLY_MIGRATIONS: "true"
+      # Every reset starts from an empty volume, so this fires on every boot and
+      # the demo dashboard is always populated.
+      SEED_SAMPLE_DATA: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      identity:
+        condition: service_healthy
+    healthcheck: *http-health
+    networks: [internal]
+
+  web:
+    image: ghcr.io/teriansilva/superstatus-web:${SUPERSTATUS_VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      <<: *aspnet-env
+      IDP_HTTP: ${IDP_HTTP}
+      # #369: Web needs WEBAPP_HTTP to stay in reverse-proxy mode.
+      WEBAPP_HTTP: ${WEBAPP_HTTP}
+      OIDC_WEB_CLIENT_SECRET: ${OIDC_WEB_CLIENT_SECRET}
+      services__apiservice__http__0: "http://api:8080"
+      DATAPROTECTION_KEYS_DIR: /keys
+      # #377: renders the site-wide demo banner + reset countdown.
+      PUBLIC_DEMO: "true"
+    depends_on:
+      api:
+        condition: service_healthy
+      identity:
+        condition: service_healthy
+    healthcheck: *http-health
+    volumes:
+      - web-dpkeys:/keys
+    ports:
+      - "8195:8080"
+    networks: [internal]
+
+volumes:
+  pgdata:
+  identity-dpkeys:
+  web-dpkeys:
+
+networks:
+  internal:
+    driver: bridge
+    driver_opts:
+      # Pinned so scripts/demo-egress-guard.sh can write iptables rules against a
+      # stable interface name. Without this docker generates br-<hash>, which
+      # changes every time the network is recreated — and the reset recreates it
+      # every hour.
+      com.docker.network.bridge.name: ss-demo0
+    ipam:
+      config:
+        # 10/8 is unused on this docker host and on the 192.168.15.0/24 LAN, so the
+        # demo subnet can't collide with a network the egress guard means to block.
+        # (Every other compose project here sits in 172.16/12 or 192.168/16.)
+        - subnet: 10.77.240.0/24

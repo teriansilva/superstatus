@@ -1,0 +1,31 @@
+# Issue #377 — one-shot rebuild of the public demo instance.
+# Installed on ro-docker-hub (192.168.15.10). Triggered by superstatus-demo-reset.timer.
+#
+#   sudo install -m 644 scripts/systemd/superstatus-demo-reset.* /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now superstatus-demo-reset.timer
+#
+# Runs as root: the egress guard writes iptables rules. Logs to the journal:
+#   journalctl -u superstatus-demo-reset.service -n 200
+
+[Unit]
+Description=Rebuild the SuperStatus public demo instance (wipe data, pull latest release)
+Documentation=https://git.superstatus.io/superstatus.io/superstatus/issues/377
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/superstatus-demo
+ExecStart=/opt/superstatus-demo/scripts/demo-reset.sh
+
+# A reset that overruns the hour would collide with the next timer firing.
+# systemd will not start a second instance of a running oneshot service, but we
+# still bound it: a hung `compose pull` should fail loudly, not wedge the timer.
+TimeoutStartSec=900
+
+# Do not restart on failure. A failed reset leaves the previous demo running (the
+# script does all fallible work before `down -v`), and the next hour tries again.
+Restart=no
+
+[Install]
+WantedBy=multi-user.target

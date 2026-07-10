@@ -1,0 +1,177 @@
+@*
+    EmailPluginSettingsDialog — issue #367. The Email notification plugin owns the
+    global SMTP relay settings, opened from Plugins -> Email -> Configure. This
+    reuses the existing /settings/smtp save + /admin/email/test endpoints, but
+    renders as a hud-dialog rather than as an inline/nested HudPanel.
+*@
+@using SuperStatus.Data.ViewModels
+@inject SettingsApiClient SettingsApi
+@inject ISnackbar Snackbar
+
+<MudDialog Class="hud-dialog">
+    <TitleContent>
+        <div class="hud-dialog-head">
+            <span class="tag accent"><span class="led up"></span>EMAIL SETTINGS</span>
+            <span class="hud-dialog-name">SMTP relay</span>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        @if (_model is null)
+        {
+            <p class="settings-hint">Loading...</p>
+        }
+        else
+        {
+            <div class="settings-section plugin-email-settings">
+                <span class="settings-hint">
+                    Email alerts send through this relay. Save changes before sending a test.
+                    @(_model.SmtpVerifiedUtc is { } v ? $" Last verified {v:u}." : "")
+                </span>
+
+                <div class="settings-grid settings-ai">
+                    <label class="settings-field">
+                        <span class="settings-label">SMTP host</span>
+                        <input class="settings-input smtp-host" type="text" maxlength="255" @bind="_model.SmtpHost" placeholder="smtp.example.com" />
+                    </label>
+                    <label class="settings-field">
+                        <span class="settings-label">Port</span>
+                        <input class="settings-input smtp-port" type="number" min="1" max="65535" @bind="_model.SmtpPort" />
+                        <span class="settings-hint">587 STARTTLS · 465 implicit TLS · 25 plain.</span>
+                    </label>
+                    <label class="settings-field">
+                        <span class="settings-label">From address</span>
+                        <input class="settings-input smtp-from" type="email" @bind="_model.SmtpFromAddress" placeholder="alerts@example.com" />
+                    </label>
+                    <label class="settings-field">
+                        <span class="settings-label">From name</span>
+                        <input class="settings-input" type="text" maxlength="120" @bind="_model.SmtpFromName" placeholder="Acme Status" />
+                    </label>
+                    <label class="settings-field">
+                        <span class="settings-label">Username</span>
+                        <input class="settings-input" type="text" autocomplete="username" @bind="_model.SmtpUsername" placeholder="optional (blank = no auth)" />
+                    </label>
+                    <label class="settings-field">
+                        <span class="settings-label">Password</span>
+                        <input class="settings-input" type="password" autocomplete="new-password" @bind="_model.SmtpPassword" placeholder="@SmtpPasswordPlaceholder" />
+                        <span class="settings-hint">@SmtpPasswordHint</span>
+                    </label>
+                    <label class="settings-field">
+                        <span class="settings-label">Default recipients</span>
+                        <input class="settings-input smtp-default-recipients" type="text" @bind="_model.AlertDefaultRecipients" placeholder="ops@example.com, oncall@example.com" />
+                        <span class="settings-hint">Optional fallback. Alert profiles can provide their own recipients.</span>
+                    </label>
+                </div>
+
+                <label class="settings-check">
+                    <input type="checkbox" @bind="_model.SmtpUseStartTls" />
+                    <span>Use STARTTLS (recommended on port 587)</span>
+                </label>
+
+                <span class="settings-hint">
+                    Readiness is relay-level here. Delivery still requires default recipients or
+                    profile recipients on an alert profile.
+                </span>
+            </div>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Close" Variant="Variant.Outlined" Color="Color.Secondary">Close</MudButton>
+        <MudButton OnClick="SaveSmtp" Disabled="@(_model is null || _savingSmtp)" Color="Color.Primary" Variant="Variant.Filled">
+            @(!_savingSmtp ? "Save email settings" : "Saving...")
+        </MudButton>
+        <MudButton OnClick="SendTest" Disabled="@(_model is null || _testing)" Variant="Variant.Outlined" Color="Color.Primary">
+            @(!_testing ? "Send test email" : "Sending...")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    private SiteSettingsViewModel? _model;
+    private bool _savingSmtp;
+    private bool _testing;
+    private bool _changed;
+
+    private string SmtpPasswordPlaceholder => _model?.SmtpPasswordSet == true ? "******** (stored)" : "optional (blank = no auth)";
+    private string SmtpPasswordHint => _model?.SmtpPasswordSet == true
+        ? "A password is stored. Leave blank to keep it, or type a new value to replace it."
+        : "Stored for the relay. Never shown back.";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var current = await SettingsApi.GetSettingsAsync();
+        _model = new SiteSettingsViewModel
+        {
+            SmtpHost = current.SmtpHost,
+            SmtpPort = current.SmtpPort,
+            SmtpUseStartTls = current.SmtpUseStartTls,
+            SmtpUsername = current.SmtpUsername,
+            SmtpPassword = null,
+            SmtpPasswordSet = current.SmtpPasswordSet,
+            SmtpFromAddress = current.SmtpFromAddress,
+            SmtpFromName = current.SmtpFromName,
+            AlertDefaultRecipients = current.AlertDefaultRecipients,
+            SmtpVerifiedUtc = current.SmtpVerifiedUtc,
+        };
+    }
+
+    private void Close()
+    {
+        if (_changed && _model is not null)
+            MudDialog.Close(DialogResult.Ok(_model));
+        else
+            MudDialog.Cancel();
+    }
+
+    private async Task SaveSmtp()
+    {
+        if (_model is null || _savingSmtp) return;
+        _savingSmtp = true;
+        try
+        {
+            var saved = await SettingsApi.SaveSmtpSettingsAsync(_model);
+            _model.SmtpPassword = null;
+            _model.SmtpPasswordSet = saved.SmtpPasswordSet;
+            _model.SmtpVerifiedUtc = saved.SmtpVerifiedUtc;
+            _changed = true;
+            Snackbar.Add("Email settings saved.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Could not save email settings: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _savingSmtp = false;
+        }
+    }
+
+    private async Task SendTest()
+    {
+        if (_testing) return;
+        _testing = true;
+        try
+        {
+            var (ok, message) = await SettingsApi.SendTestEmailAsync(null);
+            if (ok)
+            {
+                Snackbar.Add($"Test email sent to {message}.", Severity.Success);
+                if (_model is not null) _model.SmtpVerifiedUtc = DateTime.UtcNow;
+                _changed = true;
+            }
+            else
+            {
+                Snackbar.Add($"Test failed: {message}", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Test failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _testing = false;
+        }
+    }
+}

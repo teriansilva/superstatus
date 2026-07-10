@@ -1,0 +1,30 @@
+/* Issue #103 — title anchor on the overview card. */
+::deep .check-card-title {
+    color: var(--text-1);
+    text-decoration: none;
+}
+::deep .check-card-title:hover {
+    color: var(--accent);
+}
+::deep .check-card-title:focus-visible {
+    outline: 1.5px solid var(--accent);
+    outline-offset: 2px;
+}
+
+/* Issue #95 Phase 3c — HudPanel frame around the service card. The inner
+   MudCard is neutralised so the HUD frame (frosted bg + corner brackets)
+   is the only surface. */
+::deep .service-card-frame {
+    margin-bottom: var(--s-3, 12px);
+}
+::deep .service-card-inner.mud-card {
+    background: transparent;
+    box-shadow: none;
+    border: none;
+}
+::deep .service-card-frame .last-checked {
+    color: var(--text-3);
+    margin-left: var(--s-3, 12px);
+    font-family: var(--font-mono);
+    letter-spacing: 0.04em;
+}

@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <meta name="description" content="SuperStatus — clean, modern, self-hostable status pages you own. HTTP/TCP and AI/LLM checks, SLAs, incidents, and alerts to Slack, Discord, Telegram, email and webhooks. Self-host free, or hosted from €9/mo." />
+    <link rel="icon" type="image/svg+xml" href="_content/SuperStatus.Ui.Shared/favicon.svg" />
+    <link rel="icon" type="image/png" href="_content/SuperStatus.Ui.Shared/favicon.png" />
+    <link rel="apple-touch-icon" href="_content/SuperStatus.Ui.Shared/apple-touch-icon.png" />
+
+    @* SEO + social cards — issue #269. The landing is a single known origin, so
+       these are static. (@@ escapes the Razor @ in the JSON-LD keys.) *@
+    <link rel="canonical" href="https://superstatus.superstatus.io/" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <meta name="theme-color" content="#0b0f14" />
+    <meta name="application-name" content="SuperStatus" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="SuperStatus" />
+    <meta property="og:title" content="SuperStatus — status pages you own" />
+    <meta property="og:description" content="Clean, modern, self-hostable status pages — HTTP/TCP and AI/LLM checks, SLAs, incident timelines, and alerts to Slack, Discord, Telegram, email and webhooks. Free to self-host." />
+    <meta property="og:url" content="https://superstatus.superstatus.io/" />
+    <meta property="og:image" content="https://superstatus.superstatus.io/img/preview-dashboard.png" />
+    <meta property="og:image:alt" content="A SuperStatus status dashboard" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="SuperStatus — status pages you own" />
+    <meta name="twitter:description" content="Self-hostable status pages — HTTP/TCP and AI/LLM checks, SLAs, incidents, and alerts to Slack, Discord, Telegram, email and webhooks. Free to self-host." />
+    <meta name="twitter:image" content="https://superstatus.superstatus.io/img/preview-dashboard.png" />
+    <script type="application/ld+json">
+    {
+        "@@context": "https://schema.org",
+        "@@type": "SoftwareApplication",
+        "name": "SuperStatus",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "Docker, Linux",
+        "url": "https://superstatus.superstatus.io/",
+        "image": "https://superstatus.superstatus.io/img/preview-dashboard.png",
+        "description": "Clean, modern, self-hostable status pages for your services — HTTP/TCP and AI/LLM checks, SLAs, incident timelines, alerts to Slack, Discord, Telegram, email, web push and webhooks, one-click console updates, and full branding. Free to self-host.",
+        "offers": { "@@type": "Offer", "price": "0", "priceCurrency": "EUR", "description": "Self-host free forever" },
+        "publisher": { "@@type": "Organization", "name": "SuperStatus", "url": "https://superstatus.superstatus.io/" }
+    }
+    </script>
+
+    @* Shared design system (single source of truth lives in
+       SuperStatus.Ui.Shared, same file the dashboard uses). *@
+    <link rel="stylesheet" href="_content/SuperStatus.Ui.Shared/hud-theme.css" />
+    <link rel="stylesheet" href="landing.css" />
+
+    @* Resolve light/dark from the OS preference before first paint so there's
+       no flash of the wrong theme. The landing page follows the system theme
+       (no in-page toggle); runtime OS changes are handled by hud-theme.js. *@
+    <script>
+        (function () {
+            var dark = true;
+            try { dark = window.matchMedia('(prefers-color-scheme: dark)').matches; } catch (e) { /* assume dark */ }
+            document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+        })();
+    </script>
+
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+    @* Privacy-friendly, self-hosted analytics (Umami — analytics.superstatus.io). *@
+    <script defer src="https://analytics.superstatus.io/script.js" data-website-id="337a593c-61ff-460d-8b2a-cb3d78e3c136"></script>
+    <HeadOutlet />
+</head>
+<body>
+    <Routes />
+    @* Keep the shared theme module so OS light/dark changes re-apply live. *@
+    <script src="_content/SuperStatus.Ui.Shared/js/hud-theme.js"></script>
+</body>
+</html>

@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <EnableMSTestRunner>true</EnableMSTestRunner>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.Testing" Version="9.4.2" />
+    <PackageReference Include="bunit" Version="1.40.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="9.0.8" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="9.0.8" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.8" />
+    <PackageReference Include="MSTest" Version="3.10.4" />
+    <PackageReference Include="YamlDotNet" Version="18.1.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SuperStatus.AppHost\SuperStatus.AppHost.csproj" />
+    <ProjectReference Include="..\SuperStatus.ApiService\SuperStatus.ApiService.csproj" />
+    <ProjectReference Include="..\SuperStatus.Identity\SuperStatus.Identity.csproj" />
+    <ProjectReference Include="..\SuperStatus.Data\SuperStatus.Data.csproj" />
+    <ProjectReference Include="..\SuperStatus.Services\SuperStatus.Services.csproj" />
+    <ProjectReference Include="..\SuperStatus.Web\SuperStatus.Web.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="System.Net" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="Aspire.Hosting.ApplicationModel" />
+    <Using Include="Aspire.Hosting.Testing" />
+    <Using Include="Microsoft.VisualStudio.TestTools.UnitTesting" />
+  </ItemGroup>
+
+</Project>

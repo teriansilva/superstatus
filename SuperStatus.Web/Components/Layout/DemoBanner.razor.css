@@ -1,0 +1,99 @@
+/* #377 — public demo strip. Amber is demo chrome ONLY; the semantic --status-*
+   tokens on service rows, LEDs and uptime strips are never touched by demo mode. */
+
+.demo-banner {
+    display: flex;
+    align-items: center;
+    gap: var(--s-4);
+    padding: 10px var(--s-5);
+    background: rgba(245, 158, 11, 0.08);
+    border-bottom: 1px solid rgba(245, 158, 11, 0.35);
+    font-size: 12px;
+    color: var(--text-2);
+}
+
+.demo-banner .glyph {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2);
+    flex: none;
+    color: var(--status-degraded);
+    font-weight: 600;
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+}
+
+.demo-banner .glyph .led {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--status-degraded);
+    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.18);
+}
+
+/* min-width: 0 so a long credential line ellipsises/wraps instead of forcing
+   horizontal overflow — enforced by the visual pipeline, not by inspection. */
+.demo-banner .body {
+    flex: 1;
+    min-width: 0;
+}
+
+.demo-banner .body strong {
+    color: var(--text-1);
+    font-weight: 500;
+}
+
+.demo-banner code {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    padding: 1px 6px;
+    color: var(--text-1);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+}
+
+.demo-banner .reset {
+    flex: none;
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--s-2);
+    border: 1px solid rgba(245, 158, 11, 0.35);
+    background: rgba(245, 158, 11, 0.07);
+    padding: 5px 12px;
+}
+
+.demo-banner .reset .k {
+    font-size: 9px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--text-3);
+}
+
+/* Tabular numerics: a per-second countdown must not reflow the box each tick. */
+.demo-banner .reset .v {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--status-degraded);
+    font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 600px) {
+    .demo-banner {
+        flex-wrap: wrap;
+        gap: var(--s-2) var(--s-3);
+        padding: 10px var(--s-4);
+    }
+
+    /* Label + countdown share the first row; the credentials sentence wraps beneath. */
+    .demo-banner .body {
+        flex-basis: 100%;
+        order: 3;
+        font-size: 11px;
+        line-height: 1.6;
+    }
+
+    .demo-banner .reset {
+        margin-left: auto;
+    }
+}

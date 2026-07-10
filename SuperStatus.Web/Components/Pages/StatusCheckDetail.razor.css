@@ -1,0 +1,80 @@
+/* StatusCheckDetail — issue #103. */
+
+::deep .detail-frame {
+    max-width: var(--content-max);
+    margin: 0 auto var(--s-4, 16px);
+}
+
+::deep .detail-frame.hero { margin-top: var(--s-3, 12px); }
+::deep .uptime-card { padding-top: var(--s-5, 24px); }
+
+::deep .error-prose {
+    color: var(--text-2);
+    font-size: 13px;
+    line-height: 1.6;
+    margin: var(--s-4, 16px) 0 0;
+}
+::deep .error-prose.subtle {
+    color: var(--text-3);
+    font-size: 12px;
+    border-left: 1px solid var(--line);
+    padding-left: var(--s-3, 12px);
+}
+::deep .error-actions {
+    display: flex;
+    gap: var(--s-3, 12px);
+    margin-top: var(--s-5, 24px);
+}
+
+/* #293 Phase D — read-only SLA summary strip (mirrors the approved
+   m293-detail-sla mock: one compact line of segments + verdict badge). */
+::deep .sla-line {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--s-2, 8px) var(--s-3, 12px);
+    margin-top: var(--s-3, 12px);
+    font-size: 12px;
+    color: var(--text-2);
+    font-variant-numeric: tabular-nums;
+}
+::deep .sla-line .sep { color: var(--text-3); }
+::deep .sla-line b { color: var(--text-1); font-weight: 600; }
+
+::deep .sla-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    padding: 2px 8px;
+    border: 1px solid;
+}
+::deep .sla-badge.ok {
+    color: var(--status-up);
+    border-color: var(--status-up);
+    background: var(--accent-glow);
+}
+::deep .sla-badge.breach {
+    color: var(--status-down);
+    border-color: var(--status-down);
+    background: rgba(192, 32, 32, 0.10);
+}
+/* Neutral verdict (Default 100/100 "no target set" / no-data window):
+   --text-3 tone, hairline border, NO status color — calm by design. */
+::deep .sla-badge.neutral {
+    color: var(--text-3);
+    border-color: var(--line);
+    background: transparent;
+}
+
+/* Mobile (≤480px, covers the 390px reference width): the segments keep
+   wrapping; the verdict badge drops onto its own line. CSS only. */
+@media (max-width: 480px) {
+    ::deep .sla-badge {
+        flex-basis: 100%;
+        justify-content: center;
+        margin-top: var(--s-1, 4px);
+    }
+}

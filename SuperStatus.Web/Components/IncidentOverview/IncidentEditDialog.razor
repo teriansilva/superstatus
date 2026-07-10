@@ -1,0 +1,151 @@
+﻿@using Humanizer
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.JSInterop
+@using SuperStatus.Data.Constants
+@using SuperStatus.Data.Entities
+
+@inject IncidentApiClient IncidentApi
+@inject IDialogService DialogService
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<MudDialog Class="hud-dialog">
+    <TitleContent>
+        <div class="hud-dialog-head">
+            <span class="tag critical"><span class="led down"></span>INCIDENT</span>
+            <span class="hud-dialog-name">@(string.IsNullOrWhiteSpace(Incident.Title) ? "New incident" : Incident.Title)</span>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        <MudForm @ref="_form">
+
+            <MudGrid>
+                <MudItem xs="12">
+                    <MudTextField T="string"
+                                  @bind-Value="Incident.Title"
+                                  Label="Title"
+                                  For="@(()=>Incident.Title)"
+                                  Required="true"
+                                  RequiredError="Title is required." />
+                </MudItem>
+
+                @* #349: WYSIWYG markdown editor (TOAST UI via js/md-editor.js). Stores
+                   raw markdown; the incident log renders it sanitized. Init happens in
+                   OnAfterRenderAsync and the value is pulled back on Save. *@
+                <MudItem xs="12">
+                    <div class="mde-field">
+                        <label class="mde-label" for="@_editorId">Description</label>
+                        <div id="@_editorId" @ref="_editorEl" class="mde-host"></div>
+                    </div>
+                </MudItem>
+
+                @* Issue #106 PR2: operator-assigned severity drives the public
+                   incident styling (.incident.minor amber / .incident.severe red). *@
+                <MudItem xs="12" sm="6">
+                    <MudSelect T="IncidentSeverity"
+                               @bind-Value="Incident.Severity"
+                               Label="Severity"
+                               For="@(()=>Incident.Severity)"
+                               Dense="true">
+                        <MudSelectItem T="IncidentSeverity" Value="IncidentSeverity.Minor">Minor</MudSelectItem>
+                        <MudSelectItem T="IncidentSeverity" Value="IncidentSeverity.Severe">Severe</MudSelectItem>
+                        <MudSelectItem T="IncidentSeverity" Value="IncidentSeverity.Critical">Critical</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+
+                <MudItem xs="12" sm="6" Class="d-flex align-center">
+                    <MudCheckBox T="bool" @bind-Value="Incident.VisibleToPublic" Color="Color.Primary" Label="Visible to public" />
+                </MudItem>
+
+                <MudItem xs="12">
+                    <MudCheckBox T="bool" @bind-Value="Incident.Resolved" Color="Color.Primary" Label="Resolved" />
+                    @if (Incident is { Resolved: true, ResolvedUtc: not null })
+                    {
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">Resolved @Incident.ResolvedUtc.Value.Humanize()</MudText>
+                    }
+                </MudItem>
+            </MudGrid>
+
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Variant="Variant.Outlined" Color="Color.Secondary">Cancel</MudButton>
+        <MudButton OnClick="SubmitAsync" Disabled="@_submitting" Color="Color.Primary" Variant="Variant.Filled">
+            @(!_submitting ? "Save" : "Saving...")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public required IncidentViewModel Incident { get; set; }
+
+    private MudForm? _form;
+    private bool _submitting;
+
+    // #349: markdown editor interop. Stable handle per dialog instance; the JS side
+    // (window.mdEditor) lazily loads the vendored TOAST UI bundle on first init.
+    private ElementReference _editorEl;
+    private readonly string _editorId = "mde-" + Guid.NewGuid().ToString("N");
+    private bool _editorReady;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            await JS.InvokeAsync<bool>("mdEditor.init", _editorEl, _editorId, Incident.Description ?? string.Empty);
+            _editorReady = true;
+        }
+        catch (JSException)
+        {
+            // Editor bundle failed to load — leave _editorReady false; Save keeps the
+            // model's existing Description rather than clobbering it with an empty read.
+        }
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (_form is null) return;
+
+        // Pull the latest markdown out of the editor into the model before validating.
+        if (_editorReady)
+        {
+            try { Incident.Description = await JS.InvokeAsync<string>("mdEditor.getValue", _editorId); }
+            catch (JSException) { /* keep the existing Description */ }
+        }
+
+        await _form.Validate();
+        if (!_form.IsValid) return;
+
+        _submitting = true;
+        try
+        {
+            await IncidentApi.UpdateOrAddIncident(Incident);
+            MudDialog.Close(DialogResult.Ok(Incident));
+        }
+        finally
+        {
+            _submitting = false;
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async void OnWebhookToggle(bool _)
+    {
+        // Revalidate dependent fields when webhook enabled/disabled
+        if (_form is not null)
+            await _form.Validate();
+        StateHasChanged();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (!_editorReady) return;
+        try { await JS.InvokeVoidAsync("mdEditor.destroy", _editorId); }
+        catch (JSException) { /* already gone */ }
+        catch (JSDisconnectedException) { /* circuit closed before dispose */ }
+    }
+}

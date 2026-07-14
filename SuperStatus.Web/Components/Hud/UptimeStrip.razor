@@ -1,0 +1,152 @@
+@*
+    UptimeStrip — N-cell horizontal status bar (issue #103).
+
+    Renders one .day cell per element in `Days`. The cell's status class
+    is derived from a string vocabulary that mirrors hud-theme.css's
+    .uptime-strip .day variants:
+
+        "up"        → green cell (default — no modifier class)
+        "degraded"  → amber
+        "down"      → red
+        "gap"       → muted bordered cell (no samples / future day)
+
+    Anything else falls back to "gap" so unknown values are never
+    silently reported as healthy.
+
+    Issue #201: when `StartDate` + `LoadDetail` are supplied the strip becomes
+    interactive — hovering/focusing a cell (or tapping on mobile) lazily fetches
+    that day's detail via the parent-owned `LoadDetail` callback (which caches) and
+    shows a small popover. The strip stays presentational: it never calls the API
+    itself. Used on Home (per service row) and on the service-detail page.
+*@
+@using SuperStatus.Data.ViewModels
+<div class="uptime-strip @ExtraClass @(Interactive ? "interactive" : null)" aria-label="@AriaLabel">
+    @for (int i = 0; i < Days.Count; i++)
+    {
+        var idx = i;
+        var cls = NormalizeStatus(Days[idx]);
+        @if (Interactive)
+        {
+            <span class="day @(cls == "up" ? string.Empty : cls)" tabindex="0"
+                  @onmouseenter="() => ActivateAsync(idx)" @onmouseleave="Deactivate"
+                  @onfocusin="() => ActivateAsync(idx)" @onfocusout="Deactivate"
+                  @onclick="() => ToggleAsync(idx)">
+                @if (_active == idx)
+                {
+                    <span class="day-popover" role="tooltip">
+                        @if (_loading)
+                        {
+                            <span class="dp-loading">loading…</span>
+                        }
+                        else if (_detail is null)
+                        {
+                            <span class="dp-empty">@DateLabel(idx) — details unavailable</span>
+                        }
+                        else if (_detail.Status == "gap" || _detail.Total == 0)
+                        {
+                            <span class="dp-empty">@_detail.Date.ToString("MMM d") — no data for this day</span>
+                        }
+                        else
+                        {
+                            @* #293: the SLA suffix renders ONLY when the day was judged
+                               against a non-default (≠100/100) SLA — SlaTargetPercent is
+                               null otherwise, keeping the default wording unchanged. *@
+                            <span class="dp-head">@_detail.Date.ToString("MMM d") · <span class="dp-status @_detail.Status">@StatusLabel(_detail.Status)</span>@SlaSuffix(_detail)</span>
+                            <span class="dp-row">Uptime <b>@_detail.UptimePct.ToString("0.#")%</b></span>
+                            <span class="dp-row">@_detail.Up up · @_detail.Degraded slow · @_detail.Down down</span>
+                            <span class="dp-row dp-total">@_detail.Total checks</span>
+                        }
+                    </span>
+                }
+            </span>
+        }
+        else
+        {
+            <span class="day @(cls == "up" ? string.Empty : cls)"></span>
+        }
+    }
+</div>
+
+@code {
+    /// <summary>Status vocabulary, one entry per cell (left → right == oldest → newest).</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<string> Days { get; set; } = Array.Empty<string>();
+
+    /// <summary>Optional accessible label (e.g. "Past 30 days uptime").</summary>
+    [Parameter] public string? AriaLabel { get; set; }
+
+    /// <summary>Extra classes (e.g. for a wider/full-width variant).</summary>
+    [Parameter] public string? ExtraClass { get; set; }
+
+    /// <summary>#201: the date of the FIRST (oldest) cell. Cell i ⇒ StartDate + i.
+    /// Supplying this + <see cref="LoadDetail"/> turns on the hover popover.</summary>
+    [Parameter] public DateOnly? StartDate { get; set; }
+
+    /// <summary>#201: parent-owned lazy loader for a day's detail (it caches). The
+    /// strip calls this on hover/focus; null = non-interactive.</summary>
+    [Parameter] public Func<DateOnly, Task<DayDetailViewModel?>>? LoadDetail { get; set; }
+
+    private bool Interactive => StartDate is not null && LoadDetail is not null;
+    private int _active = -1;
+    private bool _loading;
+    private bool _pinned;   // mobile: a tap pins the popover open until tapped again / another cell
+    private DayDetailViewModel? _detail;
+
+    private string DateLabel(int idx) => StartDate is null ? "" : StartDate.Value.AddDays(idx).ToString("MMM d");
+
+    private async Task ActivateAsync(int idx)
+    {
+        if (!Interactive) return;
+        _active = idx;
+        _detail = null;
+        _loading = true;
+        DayDetailViewModel? result = null;
+        try { result = await LoadDetail!(StartDate!.Value.AddDays(idx)); }
+        catch { result = null; }   // → "details unavailable" rather than a stuck spinner
+        // Guard the ASSIGNMENT, not just the re-render: an out-of-order load (a
+        // slower cell resolving after the user moved to another cell) must NOT
+        // overwrite the now-active cell's detail. Discard the late result.
+        if (_active != idx) return;
+        _detail = result;
+        _loading = false;
+        StateHasChanged();
+    }
+
+    private void Deactivate()
+    {
+        if (_pinned) return;   // a tap-pinned popover stays until explicitly toggled
+        _active = -1;
+    }
+
+    private async Task ToggleAsync(int idx)
+    {
+        // Tap support: tapping the active+pinned cell closes it; otherwise pin + load.
+        if (_pinned && _active == idx)
+        {
+            _pinned = false;
+            _active = -1;
+            return;
+        }
+        _pinned = true;
+        await ActivateAsync(idx);
+    }
+
+    private static string NormalizeStatus(string s) => (s ?? string.Empty).ToLowerInvariant() switch
+    {
+        "up"        => "up",
+        "degraded"  => "degraded",
+        "down"      => "down",
+        "gap"       => "gap",
+        _           => "gap",
+    };
+
+    private static string SlaSuffix(DayDetailViewModel d) =>
+        d.SlaTargetPercent is double target ? $" (SLA {target.ToString("0.##")}%)" : string.Empty;
+
+    private static string StatusLabel(string s) => s switch
+    {
+        "up"       => "Operational",
+        "degraded" => "Degraded",
+        "down"     => "Down",
+        _          => "No data",
+    };
+}

@@ -1,0 +1,111 @@
+@*
+    Alert delivery-log audit panel (issue #241/#253, mirrors WebhookLogPanel).
+
+    Operator-only feed of recent alert decisions — Fired / Skipped (throttled) /
+    Failed (delivery error, Phase B/C). Reads /admin/alert-log (authorized).
+    A failures-only toggle narrows to actual delivery failures. Calm by default:
+    no motion, single fetch + manual toggle.
+
+    #291 Phase C: shows the linked alert profile's name when the row carries
+    an AlertProfileId (pre-#291 rows don't) — same pattern as the webhook log.
+*@
+@using Humanizer
+@using SuperStatus.Data.Constants
+@using SuperStatus.Data.ViewModels
+@using SuperStatus.Web.Components.Hud
+@inject StatusApiClient StatusApi
+
+<HudPanel ExtraClass="alert-log-frame">
+    <div class="al-head">
+        <HudCallsign Label="ALERT LOG" Value="@HeaderValue" Meta="@(_failuresOnly ? "failures only" : "all outcomes")" />
+        <button type="button" class="al-toggle @(_failuresOnly ? "on" : "")" @onclick="ToggleFailuresAsync">
+            @(_failuresOnly ? "● FAILURES ONLY" : "○ FAILURES ONLY")
+        </button>
+    </div>
+
+    @if (_loading)
+    {
+        <p class="al-note">Loading…</p>
+    }
+    else if (_log.Count == 0)
+    {
+        <p class="al-note">No alerts@(_failuresOnly ? " failed" : " recorded") in the retention window. Configure alert rules on a status check to start.</p>
+    }
+    else
+    {
+        <div class="al-table">
+            <div class="al-row al-h">
+                <span>Outcome</span><span>Check</span><span>When</span><span>Channel</span><span>Profile</span><span>Trigger</span><span>Detail</span>
+            </div>
+            @foreach (var e in _log)
+            {
+                <div class="al-row">
+                    <span><HudTag Status="@OutcomeLed(e.Outcome)">@e.Outcome.ToString().ToUpperInvariant()</HudTag></span>
+                    <span class="al-check">@e.CheckTitle</span>
+                    <span class="al-time">@e.AttemptedUtc.Humanize()</span>
+                    <span class="al-chan">@ChannelLabel(e.ChannelTypeId)</span>
+                    @* #291 Phase C: the linked profile's name, resolved in the
+                       repository read — pre-#291 rows have none. *@
+                    <span class="al-profile">@(e.AlertProfileName ?? "—")</span>
+                    <span class="al-trig">@e.Trigger</span>
+                    <span class="al-detail" title="@DetailText(e)">@DetailText(e)</span>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(e.ErrorMessage))
+                {
+                    <div class="al-err">@e.ErrorMessage</div>
+                }
+            }
+        </div>
+    }
+</HudPanel>
+
+@code {
+    private List<AlertDeliveryLogViewModel> _log = new();
+    private bool _failuresOnly;
+    private bool _loading = true;
+
+    private string HeaderValue => _loading ? "Loading…" : $"{_log.Count} recent alert{(_log.Count == 1 ? "" : "s")}";
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _log = await StatusApi.GetAlertLogAsync(100, _failuresOnly);
+        _loading = false;
+    }
+
+    private async Task ToggleFailuresAsync()
+    {
+        _failuresOnly = !_failuresOnly;
+        await LoadAsync();
+    }
+
+    // Prefer the recipient/endpoint; fall back to the decision reason (e.g. "throttled").
+    private static string DetailText(AlertDeliveryLogViewModel e)
+        => !string.IsNullOrWhiteSpace(e.Target) ? e.Target! : (e.Reason ?? string.Empty);
+
+    // #343 Phase 5: friendly label for a channel type id (was the AlertChannel enum).
+    // Known ids get a proper name; anything else is title-cased so a new channel still
+    // reads cleanly without a code change here.
+    private static string ChannelLabel(string? typeId) => typeId switch
+    {
+        null or "" => "—",
+        "email" => "Email",
+        "webpush" => "Web push",
+        "webhook" => "Webhook",
+        "slack" => "Slack",
+        "discord" => "Discord",
+        "telegram" => "Telegram",
+        _ => char.ToUpperInvariant(typeId[0]) + typeId[1..],
+    };
+
+    // Outcome → HUD LED tone. Skipped (throttled, never delivered) reads as
+    // unknown/grey, not a failure.
+    private static string OutcomeLed(AlertOutcome outcome) => outcome switch
+    {
+        AlertOutcome.Fired   => "up",
+        AlertOutcome.Failed  => "down",
+        _                    => "unknown",   // Skipped
+    };
+}

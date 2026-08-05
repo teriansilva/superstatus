@@ -1,0 +1,392 @@
+@*
+    Plugins — installed check providers + notification channels as a first-class
+    surface (#335; channels added #343 Phase 2).
+
+    A catalogue of the in-process plugin registries, grouped by category:
+    "Check providers" from GET /statuscheck/providers and "Notification channels"
+    from GET /notifications/providers. #367 keeps the catalogue chrome clean while
+    letting declared notification channels expose provider-level actions: Email
+    opens a Configure modal for SMTP, Browser Push exposes its per-browser opt-in
+    action and subscribed-device count, and chat/webhook routing stays per profile.
+
+    Calm admin surface per docs/design-system.md: no motion, honest empty /
+    failure states.
+*@
+@page "/plugins"
+@using SuperStatus.Data.ViewModels
+@using SuperStatus.Web.Components.Admin
+@using SuperStatus.Web.Components.StatusCheckOverview
+@attribute [Authorize]
+@inject StatusApiClient StatusApi
+@inject SettingsApiClient SettingsApi
+@inject PushApiClient PushApi
+@inject IDialogService DialogService
+
+<PageTitle>SuperStatus — Plugins</PageTitle>
+
+<div class="plugins-page">
+    <HudPanel Accent="primary" ExtraClass="plugins-frame">
+        <HudCallsign Label="PLUGINS" Value="Check providers" Meta="@MetaLine" />
+
+        @if (!_loaded)
+        {
+            <p class="page-note">Loading…</p>
+        }
+        else if (_providers.Count == 0)
+        {
+            @* GetCheckProvidersAsync returns an empty list both for "none registered"
+               and for a failed fetch — say so instead of guessing. *@
+            <p class="page-note">
+                No check providers reported. The API may be unreachable — reload to retry.
+            </p>
+        }
+        else
+        {
+            <p class="page-note">
+                Every check runs on one of these providers. Config forms are generated
+                from each provider's schema.
+            </p>
+
+            @foreach (var p in _providers)
+            {
+                <div class="prov" data-provider="@p.TypeId">
+                    <div class="prov-icon" aria-hidden="true">@Glyph(p.Icon)</div>
+                    <div class="prov-main">
+                        <div class="prov-head">
+                            <span class="prov-name">@p.DisplayName</span>
+                            <span class="prov-typeid">type: @p.TypeId · schema v@(p.SchemaVersion)</span>
+                            <span class="tag accent">BUILT-IN</span>
+                            @if (IsPush(p))
+                            {
+                                <span class="tag push">PUSH</span>
+                            }
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(p.Description))
+                        {
+                            <p class="prov-desc">@p.Description</p>
+                        }
+                        <div class="prov-facts">
+                            <span>Fields <b>@p.Fields.Count</b>@FieldSummary(p)</span>
+                            <span>Secrets @SecretSummary(p)</span>
+                        </div>
+                        <div class="metric-chips">
+                            @if (p.Metrics.Count == 0)
+                            {
+                                <span class="mchip none">no declared metrics</span>
+                            }
+                            else
+                            {
+                                @foreach (var m in p.Metrics)
+                                {
+                                    <span class="mchip">@m.Key <span class="unit">@m.Unit</span></span>
+                                }
+                            }
+                        </div>
+                    </div>
+                    <div class="prov-side">
+                        <div class="prov-used">
+                            @if (_usageUnavailable)
+                            {
+                                <span>usage unavailable</span>
+                            }
+                            else
+                            {
+                                <span>Used by <b>@UsageCount(p.TypeId)</b> @(UsageCount(p.TypeId) == 1 ? "check" : "checks")</span>
+                            }
+                        </div>
+                        <button type="button" class="btn primary" @onclick="() => NewCheckAsync(p.TypeId)">+ New check</button>
+                    </div>
+                </div>
+            }
+
+            @foreach (var orphan in OrphanTypes())
+            {
+                @* Checks whose stored ProviderType has no registered provider — the
+                   engine disables them calmly (#312); surface them here too. *@
+                <div class="prov orphan" data-provider="@orphan.Type">
+                    <div class="prov-icon" aria-hidden="true">◈</div>
+                    <div class="prov-main">
+                        <div class="prov-head">
+                            <span class="prov-name">Unknown type — @orphan.Type</span>
+                            <span class="tag">NOT REGISTERED</span>
+                        </div>
+                        <p class="prov-desc">
+                            @orphan.Count @(orphan.Count == 1 ? "check references" : "checks reference") this
+                            unregistered provider type and will not run — fix or remove
+                            @(orphan.Count == 1 ? "it" : "them") in the operator console.
+                        </p>
+                    </div>
+                </div>
+            }
+        }
+    </HudPanel>
+
+    <HudPanel ExtraClass="plugins-channels">
+        <HudCallsign Label="PLUGINS" Value="Notification channels" Meta="@ChannelMetaLine" />
+
+        @if (!_channelsLoaded)
+        {
+            <p class="page-note">Loading…</p>
+        }
+        else if (_channels.Count == 0)
+        {
+            @* GetNotificationProvidersAsync returns an empty list both for "none
+               registered" and for a failed fetch — say so instead of guessing. *@
+            <p class="page-note">
+                No notification channels reported. The API may be unreachable — reload to retry.
+            </p>
+        }
+        else
+        {
+            <p class="page-note">
+                Configure global provider settings here where a channel has them. Routing and
+                recipients stay on alert profiles.
+            </p>
+
+            @foreach (var c in _channels)
+            {
+                <div class="prov" data-channel="@c.TypeId">
+                    <div class="prov-icon" aria-hidden="true">@Glyph(c.Icon)</div>
+                    <div class="prov-main">
+                        <div class="prov-head">
+                            <span class="prov-name">@c.DisplayName</span>
+                            <span class="prov-typeid">type: @c.TypeId</span>
+                            <span class="tag accent">BUILT-IN</span>
+                            @if (c.SupportsTest)
+                            {
+                                <span class="tag test">TEST</span>
+                            }
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(c.Description))
+                        {
+                            <p class="prov-desc">@c.Description</p>
+                        }
+                        <div class="prov-facts">
+                            <span>Direction <b>outbound</b></span>
+                            <span>Configured <b>@ConfigureWhere(c)</b></span>
+                            <span>Test send <b>@(c.SupportsTest ? "supported" : "—")</b></span>
+                            @if (IsEmailChannel(c))
+                            {
+                                <span>Recipients <b>@EmailRecipientsSummary</b></span>
+                            }
+                            else if (IsWebPushChannel(c))
+                            {
+                                <span>Devices <b>@PushDeviceSummary</b></span>
+                            }
+                        </div>
+                    </div>
+                    <div class="prov-side">
+                        @if (IsEmailChannel(c))
+                        {
+                            <div class="prov-used readiness">
+                                <span class="@EmailReadinessTagClass">@EmailReadinessLabel</span>
+                                <span>@EmailReadinessDetail</span>
+                            </div>
+                            <button type="button" class="btn primary channel-action email-configure" @onclick="OpenEmailSettingsAsync">Configure</button>
+                        }
+                        else if (IsWebPushChannel(c))
+                        {
+                            <div class="prov-used readiness">
+                                <span class="@PushReadinessTagClass">@PushReadinessLabel</span>
+                                <span>@PushDeviceDetail</span>
+                            </div>
+                            <EnablePushButton Compact="true" OnSubscriptionChanged="RefreshPushSubscriptionCountAsync" />
+                        }
+                        else
+                        {
+                            <div class="prov-used readiness">
+                                <span class="tag neutral">PER PROFILE</span>
+                                <span>@ConfigureHint(c)</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        }
+    </HudPanel>
+</div>
+
+@code {
+    private bool _loaded;
+    private bool _channelsLoaded;
+    private bool _usageUnavailable;
+    private List<ProviderDescriptorViewModel> _providers = new();
+    private List<NotificationDescriptorViewModel> _channels = new();
+    private Dictionary<string, int> _usage = new(StringComparer.OrdinalIgnoreCase);
+    private SiteSettingsViewModel? _emailSettings;
+    private int? _pushSubscriptionCount;
+
+    private string MetaLine => _loaded
+        ? $"{_providers.Count} installed · in-process · source: /statuscheck/providers"
+        : "loading…";
+
+    private string ChannelMetaLine => _channelsLoaded
+        ? $"{_channels.Count} installed · in-process · source: /notifications/providers"
+        : "loading…";
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Both descriptor catalogues + the usage counts fetch concurrently.
+        var providersTask = StatusApi.GetCheckProvidersAsync();
+        var channelsTask = StatusApi.GetNotificationProvidersAsync();
+        var settingsTask = SettingsApi.GetSettingsAsync();
+        var pushCountTask = PushApi.GetSubscriptionCountAsync();
+        try
+        {
+            var checks = await StatusApi.GetStatusAsync();
+            _usage = checks.Results
+                .GroupBy(c => string.IsNullOrWhiteSpace(c.ProviderType) ? "http" : c.ProviderType,
+                         StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
+        }
+        catch (HttpRequestException)
+        {
+            // Counts are decoration — render the catalogue anyway, honestly.
+            _usageUnavailable = true;
+        }
+        _providers = await providersTask;
+        _channels = await channelsTask;
+        _emailSettings = await settingsTask;
+        _pushSubscriptionCount = await pushCountTask;
+        _loaded = true;
+        _channelsLoaded = true;
+    }
+
+    private int UsageCount(string typeId) => _usage.TryGetValue(typeId, out var n) ? n : 0;
+
+    /// <summary>Check types stored on checks that no registered provider claims.</summary>
+    private IEnumerable<(string Type, int Count)> OrphanTypes() => _usage
+        .Where(kv => !_providers.Any(p => string.Equals(p.TypeId, kv.Key, StringComparison.OrdinalIgnoreCase)))
+        .OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
+        .Select(kv => (kv.Key, kv.Value));
+
+    // #367: where each notification channel is actually configured. Email has a
+    // global relay settings modal plus per-profile recipients; Browser Push has a
+    // per-browser action; schema-driven chat/webhook channels stay per profile.
+    private static string ConfigureWhere(NotificationDescriptorViewModel c) => c.TypeId switch
+    {
+        "email" => "Plugins + profile",
+        "webpush" => "this browser + profile",
+        _ => "per profile",
+    };
+
+    private static string ConfigureHint(NotificationDescriptorViewModel c) => c.TypeId switch
+    {
+        "email" => "SMTP relay here · recipients per alert profile",
+        "webpush" => "Allow this browser here · enable per alert profile",
+        _ when c.Fields.Count > 0 => "Configure per alert profile (Alerts tab)",
+        _ => "Enable per alert profile (Alerts tab)",
+    };
+
+    private bool EmailRelayConfigured =>
+        !string.IsNullOrWhiteSpace(_emailSettings?.SmtpHost)
+        && !string.IsNullOrWhiteSpace(_emailSettings?.SmtpFromAddress);
+
+    private bool EmailRelayVerified => _emailSettings?.SmtpVerifiedUtc is not null;
+
+    private string EmailReadinessTagClass => EmailRelayConfigured
+        ? EmailRelayVerified ? "tag ready" : "tag warn"
+        : "tag warn";
+
+    private string EmailReadinessLabel => EmailRelayConfigured
+        ? EmailRelayVerified ? "RELAY VERIFIED" : "RELAY CONFIGURED"
+        : "NEEDS RELAY";
+
+    private string EmailReadinessDetail => EmailRelayConfigured
+        ? EmailRelayVerified ? "SMTP test has succeeded." : "Save, then send a test email."
+        : "SMTP host and from address are required.";
+
+    private string EmailRecipientsSummary => string.IsNullOrWhiteSpace(_emailSettings?.AlertDefaultRecipients)
+        ? "profile/default needed"
+        : "default set";
+
+    private string PushReadinessTagClass => _pushSubscriptionCount is > 0 ? "tag ready" : "tag neutral";
+    private string PushReadinessLabel => _pushSubscriptionCount is > 0 ? "DEVICES READY" : "NO DEVICES";
+
+    private string PushDeviceSummary => _pushSubscriptionCount is int n
+        ? n.ToString()
+        : "unavailable";
+
+    private string PushDeviceDetail => _pushSubscriptionCount is int n
+        ? $"{n} {(n == 1 ? "device" : "devices")} subscribed."
+        : "Subscribed-device count unavailable.";
+
+    private static bool IsEmailChannel(NotificationDescriptorViewModel c) =>
+        string.Equals(c.TypeId, "email", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsWebPushChannel(NotificationDescriptorViewModel c) =>
+        string.Equals(c.TypeId, "webpush", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsPush(ProviderDescriptorViewModel p) =>
+        string.Equals(p.Direction, "push", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Descriptor icon token → HUD glyph; neutral fallback for unknown names.
+    /// Shared by check providers and notification channels.</summary>
+    private static string Glyph(string icon) => icon switch
+    {
+        "link" => "⛓",
+        "sparkle" => "✦",
+        "pulse" => "▚",
+        "mail" => "✉",
+        "bell" => "◉",
+        _ => "◈",
+    };
+
+    private static string FieldSummary(ProviderDescriptorViewModel p)
+    {
+        if (p.Fields.Count == 0) return "";
+        var labels = p.Fields.Take(3).Select(f => f.Label);
+        return $" — {string.Join(" · ", labels)}{(p.Fields.Count > 3 ? " …" : "")}";
+    }
+
+    /// <summary>Secret *labels* only — descriptor VMs never carry stored values (#312).</summary>
+    private static string SecretSummary(ProviderDescriptorViewModel p)
+    {
+        var secrets = p.Fields.Where(f => f.Kind == "secret").Select(f => f.Label).ToList();
+        return secrets.Count == 0 ? "none" : $"{secrets.Count} ({string.Join(", ", secrets)} — write-only)";
+    }
+
+    private async Task NewCheckAsync(string typeId)
+    {
+        var vm = new StatusCheckViewModel { ProviderType = typeId };
+        var options = new DialogOptions { CloseOnEscapeKey = true, CloseButton = true };
+        var parameters = new DialogParameters<StatusCheckEditDialog> { { x => x.StatusCheck, vm } };
+        var dialog = await DialogService.ShowAsync<StatusCheckEditDialog>(vm.Title, parameters, options);
+        if ((await dialog.Result) is { Canceled: false })
+        {
+            // Refresh the usage counts so the new check shows up immediately.
+            _usageUnavailable = false;
+            try
+            {
+                var checks = await StatusApi.GetStatusAsync();
+                _usage = checks.Results
+                    .GroupBy(c => string.IsNullOrWhiteSpace(c.ProviderType) ? "http" : c.ProviderType,
+                             StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
+            }
+            catch (HttpRequestException)
+            {
+                _usageUnavailable = true;
+            }
+        }
+    }
+
+    private async Task OpenEmailSettingsAsync()
+    {
+        var options = new DialogOptions
+        {
+            CloseOnEscapeKey = true,
+            CloseButton = true,
+            MaxWidth = MaxWidth.Small,
+            FullWidth = true,
+        };
+        var dialog = await DialogService.ShowAsync<EmailPluginSettingsDialog>("Email settings", options);
+        await dialog.Result;
+        _emailSettings = await SettingsApi.GetSettingsAsync();
+    }
+
+    private async Task RefreshPushSubscriptionCountAsync()
+    {
+        _pushSubscriptionCount = await PushApi.GetSubscriptionCountAsync();
+    }
+}

@@ -1,0 +1,23 @@
+@*
+    HudCallsign — page or section header in tactical "LABEL // value" style.
+
+    Example: <HudCallsign Label="SERVICE" Value="Payments gateway" Meta="CHECK ID 09" />
+*@
+<div class="callsign">
+    @if (!string.IsNullOrEmpty(Label))
+    {
+        <span class="label">@Label</span>
+        <span class="sep">//</span>
+    }
+    <span class="value">@Value</span>
+    @if (!string.IsNullOrEmpty(Meta))
+    {
+        <span class="meta">@Meta</span>
+    }
+</div>
+
+@code {
+    [Parameter] public string? Label { get; set; }
+    [Parameter, EditorRequired] public string Value { get; set; } = "";
+    [Parameter] public string? Meta { get; set; }
+}

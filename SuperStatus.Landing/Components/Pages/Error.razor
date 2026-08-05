@@ -1,0 +1,28 @@
+@page "/Error"
+@using System.Diagnostics
+
+<PageTitle>Error — SuperStatus</PageTitle>
+
+<main class="main lp-main">
+    <section class="panel critical frame lp-hero">
+        <span class="cnr tl"></span><span class="cnr tr"></span>
+        <span class="cnr bl"></span><span class="cnr br"></span>
+        <div class="callsign">
+            <span class="label">ERROR</span><span class="sep">//</span><span class="value">something went sideways</span>
+        </div>
+        <p class="lede">An unexpected error occurred while loading this page.</p>
+        <div class="lp-cta-row">
+            <a class="btn primary" href="/">Back to home</a>
+            <a class="btn" href="https://status.superstatus.io" target="_blank" rel="noopener">Live demo →</a>
+        </div>
+    </section>
+</main>
+
+@code {
+    [CascadingParameter] private HttpContext? HttpContext { get; set; }
+
+    private string? RequestId { get; set; }
+
+    protected override void OnInitialized() =>
+        RequestId = Activity.Current?.Id ?? HttpContext?.TraceIdentifier;
+}

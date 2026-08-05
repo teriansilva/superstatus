@@ -1,0 +1,156 @@
+/* SlaListPanel — SLA targets table (#293 Phase C). Same list-panel shell as
+   WebhookListPanel/AlertProfileListPanel (CSS isolation keeps the rules scoped
+   per component; the shared shape is mirrored with sla- classes). */
+
+::deep .sla-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--s-4, 16px);
+    flex-wrap: wrap;
+    margin-bottom: var(--s-3, 12px);
+}
+
+::deep .sla-note {
+    color: var(--text-3);
+    font-size: 12px;
+    line-height: 1.6;
+    margin: var(--s-3, 12px) 0 0;
+}
+
+/* ---- empty state ---- */
+::deep .sla-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--s-3, 12px);
+    padding: var(--s-6, 32px) var(--s-4, 16px);
+    border: 1px solid var(--line, rgba(255,255,255,0.08));
+    text-align: center;
+}
+::deep .sla-empty-glyph {
+    font-family: var(--font-mono, monospace);
+    font-size: 14px;
+    letter-spacing: 0.3em;
+    color: var(--text-3);
+}
+::deep .sla-empty-copy {
+    color: var(--text-2);
+    font-size: 13px;
+    line-height: 1.6;
+    max-width: 44ch;
+    margin: 0;
+}
+
+/* ---- table: name | target | critical | slow ms | used-by | ⋯ (#304) ---- */
+::deep .sla-table {
+    font-family: var(--font-mono, monospace);
+    font-size: 12px;
+}
+::deep .sla-row {
+    display: grid;
+    grid-template-columns: minmax(110px, 1fr) 70px 70px 70px 90px 44px;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--line, rgba(255,255,255,0.06));
+}
+::deep .sla-row.sla-h {
+    color: var(--text-3);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+}
+
+::deep .sla-name { color: var(--text-1); }
+::deep .sla-row .num { text-align: right; font-variant-numeric: tabular-nums; color: var(--text-2); }
+::deep .sla-used { color: var(--text-2); }
+
+/* #304: default marker is a self-explanatory chip, not a legend-dependent star */
+::deep .sla-default-chip {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-size: 9.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    border: 1px solid var(--accent-soft, rgba(63,191,111,0.55));
+    background: var(--accent-glow, rgba(63,191,111,0.12));
+    vertical-align: middle;
+}
+
+/* #304: per-row overflow (⋯) menu in its own divider-separated column */
+::deep .sla-menu {
+    position: relative;
+    justify-self: end;
+    align-self: stretch;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding-left: 10px;
+    border-left: 1px solid var(--line, rgba(255,255,255,0.08));
+}
+::deep .sla-kebab {
+    appearance: none;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    width: 28px;
+    height: 28px;
+    font-size: 16px;
+    line-height: 1;
+    color: var(--text-3);
+    cursor: pointer;
+}
+::deep .sla-kebab:hover { color: var(--text-1); border-color: var(--line-strong, rgba(255,255,255,0.14)); }
+::deep .sla-kebab:focus-visible { outline: 1.5px solid var(--accent); outline-offset: 2px; }
+::deep .sla-menu.open .sla-kebab { color: var(--text-1); border-color: var(--line-strong, rgba(255,255,255,0.14)); }
+
+/* Backdrop: full-viewport transparent catcher so any outside click closes the menu (no JS). */
+::deep .sla-menu-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+}
+::deep .sla-menu-pop {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 4px);
+    z-index: 41;
+    min-width: 152px;
+    display: flex;
+    flex-direction: column;
+    padding: 5px;
+    background: var(--bg-2, #1a1c21);
+    border: 1px solid var(--line-strong, rgba(255,255,255,0.14));
+    border-radius: 8px;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.5);
+}
+::deep .sla-mi {
+    appearance: none;
+    background: transparent;
+    border: 0;
+    border-radius: 5px;
+    padding: 7px 10px;
+    text-align: left;
+    font: inherit;
+    font-size: 12px;
+    color: var(--text-1);
+    cursor: pointer;
+}
+::deep .sla-mi:hover:not(:disabled) { background: rgba(255,255,255,0.05); }
+::deep .sla-mi:focus-visible { outline: 1.5px solid var(--accent); outline-offset: -1px; }
+::deep .sla-mi:disabled { opacity: 0.45; cursor: default; }
+::deep .sla-mi.danger { color: var(--status-down); }
+::deep .sla-mi-sep { height: 1px; background: var(--line, rgba(255,255,255,0.08)); margin: 4px 2px; }
+
+/* Mobile: drop the two inner numeric columns; keep the ⋯ in-row (#304). */
+@media (max-width: 720px) {
+    ::deep .sla-row {
+        grid-template-columns: minmax(90px, 1fr) 70px 70px 44px;
+    }
+    ::deep .sla-row > .num:nth-child(2),
+    ::deep .sla-row > .num:nth-child(3) { display: none; }
+}

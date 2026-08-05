@@ -1,0 +1,11 @@
+/* HudDashboardHero — issue #95 Phase 3a. */
+
+::deep .hero-frame {
+    max-width: var(--content-max);
+    margin: 0 auto var(--s-5, 24px);
+}
+::deep .hero-note {
+    color: var(--text-3);
+    font-size: 12px;
+    margin: var(--s-3, 12px) 0 0;
+}

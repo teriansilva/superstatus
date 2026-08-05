@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Layer_1" xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 595.3 841.9">
+  <!-- Generator: Adobe Illustrator 29.8.1, SVG Export Plug-In . SVG Version: 2.1.1 Build 2)  -->
+  <defs>
+    <style>
+      .st0 {
+        fill: none;
+        stroke: #000;
+        stroke-miterlimit: 10;
+      }
+
+      .st0, .st1 {
+        font-family: Bauhaus93, 'Bauhaus 93';
+        font-size: 113.2px;
+      }
+
+      .st2 {
+        fill-opacity: .4;
+      }
+
+      .st1 {
+        fill: #fff;
+      }
+    </style>
+  </defs>
+  <circle class="st2" cx="353.4" cy="459.1" r="141.5"/>
+  <circle class="st2" cx="353.4" cy="459.1" r="126.3"/>
+  <circle class="st2" cx="353.4" cy="459.1" r="111.4"/>
+  <circle class="st2" cx="353.4" cy="459.1" r="94.8"/>
+  <circle class="st2" cx="353.4" cy="459.1" r="73.2"/>
+  <circle class="st2" cx="353.4" cy="459.1" r="51.9"/>
+  <g>
+    <text class="st1" transform="translate(-307.4 486.8)"><tspan x="0" y="0">superstatus.io</tspan></text>
+    <text class="st0" transform="translate(-307.4 486.8)"><tspan x="0" y="0">superstatus.io</tspan></text>
+  </g>
+</svg>

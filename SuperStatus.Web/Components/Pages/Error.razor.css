@@ -1,0 +1,23 @@
+/* Error page — tactical-HUD layout (issue #95 Phase 2). */
+
+::deep .error-frame {
+    max-width: 720px;
+    margin: var(--s-7, 48px) auto;
+}
+::deep .error-prose {
+    color: var(--text-2);
+    font-size: 13px;
+    line-height: 1.6;
+    margin: var(--s-4, 16px) 0 0;
+}
+::deep .error-prose.subtle {
+    color: var(--text-3);
+    font-size: 12px;
+    border-left: 1px solid var(--line);
+    padding-left: var(--s-3, 12px);
+}
+::deep .error-actions {
+    display: flex;
+    gap: var(--s-3, 12px);
+    margin-top: var(--s-5, 24px);
+}

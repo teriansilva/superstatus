@@ -1,0 +1,73 @@
+/* Issue #319: operator-console About page. Calm HUD styling — no motion;
+   tokens from the HUD theme. .btn / .admin-note come from the shared theme +
+   Admin.razor.css (::deep), so they aren't redefined here. */
+
+.about-actions {
+    margin-top: var(--s-4, 16px);
+}
+
+/* The coffee CTA reuses .btn.primary (accent outline); the glyph inherits the
+   button's currentColor via stroke="currentColor". */
+.about-ico {
+    flex: 0 0 auto;
+}
+
+.about-tagline {
+    color: var(--accent, #3fbf6f);
+    font-size: 12px;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    margin: var(--s-2, 8px) 0 0;
+}
+
+/* Version / Created-by pairs — same compact grid as UpdatesPanel's .up-kv. */
+.about-kv {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 6px 18px;
+    margin: 16px 0;
+    font-size: 13px;
+}
+.about-kv dt,
+.about-kv dd {
+    margin: 0;
+}
+.about-kv .k {
+    color: var(--text-3, #6f747d);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    align-self: center;
+}
+.about-kv .v {
+    color: var(--text-1, #e8e9ec);
+}
+.about-kv .v.accent {
+    color: var(--accent, #3fbf6f);
+}
+.about-kv a {
+    color: var(--accent, #3fbf6f);
+    text-decoration: none;
+}
+.about-kv a:hover {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.about-links {
+    display: flex;
+    gap: var(--s-4, 16px);
+    flex-wrap: wrap;
+    margin-top: var(--s-2, 8px);
+}
+.about-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--text-2, #a7abb3);
+    font-size: 12px;
+    text-decoration: none;
+}
+.about-link:hover {
+    color: var(--accent, #3fbf6f);
+}

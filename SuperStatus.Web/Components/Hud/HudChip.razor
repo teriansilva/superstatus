@@ -1,0 +1,23 @@
+@*
+    HudChip — single key/value chip used inside a HudTelemetryStrip.
+*@
+<div class="chip">
+    <span class="k">@K</span>
+    <span class="v @ToneClass">@V</span>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string K { get; set; } = "";
+    [Parameter, EditorRequired] public string V { get; set; } = "";
+
+    /// <summary>"" (default) | "accent" | "degraded" | "critical".</summary>
+    [Parameter] public string Tone { get; set; } = "";
+
+    private string ToneClass => Tone switch
+    {
+        "accent"   => "accent",
+        "degraded" => "degraded",
+        "critical" => "critical",
+        _          => ""
+    };
+}

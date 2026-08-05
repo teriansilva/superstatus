@@ -1,0 +1,86 @@
+@*
+    DemoBanner — issue #377.
+
+    Site-wide strip announcing that this is the throwaway public demo, showing the
+    published operator credentials and counting down to the next hourly wipe.
+
+    Renders NOTHING unless DemoModeInfo.IsEnabled, i.e. unless PUBLIC_DEMO=true, which
+    only docker-compose.demo.yml sets. DemoBannerTests asserts that on a normal
+    instance the component produces no markup and leaks no credential text.
+
+    Placement: mounted ABOVE the topbar in MainLayout and PublicLayout, deliberately
+    outside the telemetry surface. The banner is amber (--status-degraded) because that
+    is the universal "not production" signal, but a status page also uses amber to mean
+    "a service is degraded" — keeping it out of the panel region is what stops the two
+    readings from colliding. Service LEDs, uptime strips and status tags keep their own
+    semantic tokens; demo mode never recolours them.
+
+    The countdown ticks client-side from DemoMode.NextResetUtc, the same helper the
+    reset timer's schedule is documented against (OnCalendar=hourly). No API call and no
+    shared state: both sides read the wall clock.
+*@
+@using System.Threading
+@using SuperStatus.ServiceDefaults
+@implements IDisposable
+@inject DemoModeInfo Demo
+
+@if (Demo.IsEnabled)
+{
+    <div class="demo-banner" role="status">
+        <span class="glyph">
+            <span class="led" aria-hidden="true"></span>Public demo
+        </span>
+        <span class="demo-msg">
+            Sign in with <code>@DemoEmail</code> / <code>@DemoPassword</code>.
+            All data is <strong>wiped hourly</strong> and the latest release redeployed.
+        </span>
+        <span class="reset">
+            <span class="k">Reset in</span>
+            <span class="v">@_countdown</span>
+        </span>
+    </div>
+}
+
+@code {
+    // Duplicated as literals rather than referenced from SuperStatus.Data: Web has no
+    // reference to that project, and these are published constants, not secrets.
+    private const string DemoEmail = "admin@superstatus.io";
+    private const string DemoPassword = "admin";
+
+    private string _countdown = "--:--";
+    private Timer? _timer;
+
+    protected override void OnInitialized()
+    {
+        if (!Demo.IsEnabled)
+        {
+            return;
+        }
+
+        Refresh();
+        var period = TimeSpan.FromSeconds(1);
+        _timer = new Timer(_ =>
+        {
+            Refresh();
+            InvokeAsync(StateHasChanged);
+        }, null, period, period);
+    }
+
+    private void Refresh()
+    {
+        var remaining = DemoMode.TimeUntilReset(DateTime.UtcNow);
+
+        // At T-0 the reset is in flight: containers are being recreated and the site is
+        // about to 502 for a minute or two. Saying "now" is honest; counting into
+        // negatives, or freezing at 00:00, is not.
+        _countdown = remaining <= TimeSpan.Zero
+            ? "now"
+            : $"{(int)remaining.TotalMinutes:D2}:{remaining.Seconds:D2}";
+    }
+
+    public void Dispose()
+    {
+        _timer?.Dispose();
+        _timer = null;
+    }
+}

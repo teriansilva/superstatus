@@ -1,0 +1,15 @@
+# SuperStatus — repo-wide analyzer configuration.
+
+root = true
+
+[*.cs]
+
+# Issue #85 — structured logging guard.
+# CA2254: "The logging message template should not vary between calls" —
+# fires on interpolated ($"...") logging templates, which defeat structured
+# logging (each call becomes a unique, unsearchable message and allocates
+# eagerly). Surfaced as a build warning so a regression is visible in CI;
+# there are currently zero violations in the codebase. Prefer
+# logger.LogX("... {Field}", value) with named placeholders, and pass any
+# exception as the first argument rather than interpolating ex.Message.
+dotnet_diagnostic.CA2254.severity = warning

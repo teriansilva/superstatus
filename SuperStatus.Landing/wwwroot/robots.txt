@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://superstatus.superstatus.io/sitemap.xml

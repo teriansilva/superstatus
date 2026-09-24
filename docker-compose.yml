@@ -1,0 +1,211 @@
+name: superstatus
+
+# Self-host / local-trial stack for SuperStatus.
+#
+# This is the file a self-hoster runs. It PULLS prebuilt images from GHCR (no
+# source checkout, no build) and runs the whole status page on plain HTTP over
+# localhost — no domain, no TLS, no reverse proxy, and no edits required:
+#
+#   cp .env.example .env      # optional — the defaults below already work
+#   docker compose up -d      # pull + start
+#   open http://localhost:8080
+#
+# To build the images from source instead, layer the build override:
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+#
+# The org-internal staging/production deploys use docker-compose.staging.yml /
+# docker-compose.prod.yml instead; those assume an external TLS reverse proxy.
+#
+# ── How single-host OIDC works here (#358: dynamic issuer) ────────────────────
+# Web and Identity speak OIDC, which needs the authority reachable by BOTH the
+# browser (login redirects, on the published ports) and the web/api containers
+# (back-channel discovery / token / JWKS, over the compose network).
+#
+# Rather than bake a fixed public host into the config (which strands the login
+# redirect the moment the guess is wrong — a cloud VM's NIC IP, a hostname, etc.),
+# this stack follows the host the browser actually used for the login REDIRECT,
+# while the OIDC issuer stays a stable internal value:
+#
+#   • Browser → reaches Web on :${WEB_PORT} and Identity on :${IDENTITY_PORT} at
+#     whatever address you open the app at. Web rebuilds the authorize/logout
+#     redirect to that request host; the issuer itself is pinned to the internal
+#     authority (IDP_HTTP). So an IP, a hostname, localhost — all just work, no config.
+#   • IDP_HTTP = http://identity:8080  — the internal back-channel the containers
+#     use for metadata / token / JWKS over the compose network (host-agnostic).
+#
+# First run accepts any host (relaxed); pin your public address(es) in the console
+# (Settings → Access & security) to harden it. The browser must be able to reach
+# the identity port (:${IDENTITY_PORT}) directly — open it in your firewall / cloud
+# NSG alongside the web port. To put this behind a TLS reverse proxy on one
+# hostname instead, set WEBAPP_HTTP (+ optionally IDP_PUBLIC_HTTP) — see
+# docker-compose.staging.yml and docs/self-hosting.md.
+
+x-aspnet-env: &aspnet-env
+  ASPNETCORE_ENVIRONMENT: Production
+  ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
+
+x-healthcheck: &http-health
+  test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+  interval: 10s
+  timeout: 5s
+  retries: 18
+  start_period: 90s
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    # The API runs a periodic status-check job plus its read
+    # endpoints; together with the Identity pool the 100-connection default got
+    # exhausted under load. 200 gives headroom within default shared_buffers.
+    command: ["postgres", "-c", "max_connections=200"]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-superstatus}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-superstatus_local_dev}
+      POSTGRES_DB: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [internal]
+
+  identity:
+    image: ghcr.io/teriansilva/superstatus-identity:${SUPERSTATUS_VERSION:-latest}
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+      com.centurylinklabs.watchtower.scope: "superstatus"
+    environment:
+      <<: *aspnet-env
+      ConnectionStrings__SuperStatusIdentityDb: "Host=postgres;Database=SuperStatusIdentityDb;Username=${POSTGRES_USER:-superstatus};Password=${POSTGRES_PASSWORD:-superstatus_local_dev};Maximum Pool Size=20;Connection Idle Lifetime=30"
+      # #358: dynamic-issuer self-host mode. IDP_PUBLIC_HTTP + WEBAPP_HTTP are
+      # intentionally UNSET here, so Identity pins the issuer to the internal host
+      # (IDP_HTTP) and validates the login callback same-origin against the request
+      # host — no baked-in public host to get wrong. WEB_PORT bounds the same-origin
+      # redirect check; API_INTERNAL_HTTP is
+      # where Identity reads the allowed-sign-in-hosts allowlist. (Reverse-proxy /
+      # cloud deploys set WEBAPP_HTTP / IDP_PUBLIC_HTTP in their own compose files.)
+      WEB_PORT: ${WEB_PORT:-8080}
+      API_INTERNAL_HTTP: http://api:8080
+      # #358 (ID2088): the internal authority Identity pins as its issuer in dynamic
+      # mode, so the front-channel authorize and the back-channel token endpoint stamp
+      # the SAME issuer (else the code→token exchange is rejected). Same value web/api
+      # use to reach Identity; ignored in pinned/reverse-proxy mode.
+      IDP_HTTP: ${IDP_HTTP:-http://identity:8080}
+      # Reverse-proxy / pinned override: set these in .env to serve the stack behind
+      # ONE TLS hostname instead of the two-port dynamic default (WEBAPP_HTTP seeds
+      # the OIDC redirect URIs; IDP_PUBLIC_HTTP pins the issuer). The null-map form
+      # (no value) forwards them from .env when set and OMITS them when unset — so
+      # the app sees them genuinely unset (dynamic self-host), never an empty string.
+      # See docs/self-hosting.md §5.
+      WEBAPP_HTTP:
+      IDP_PUBLIC_HTTP:
+      OIDC_WEB_CLIENT_SECRET: ${OIDC_WEB_CLIENT_SECRET:-superstatus_local_dev_oidc}
+      APPLY_MIGRATIONS: "true"
+      # #326: persist DataProtection keys on a volume so antiforgery + the auth
+      # cookie survive a container recreate (Watchtower update / compose pull).
+      DATAPROTECTION_KEYS_DIR: /keys
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck: *http-health
+    volumes:
+      - identity-dpkeys:/keys
+    ports:
+      # #358: the browser reaches the OIDC authority directly on this published
+      # port — login redirects go to http://<the-host-you-opened>:${IDENTITY_PORT},
+      # so this port must be reachable by the browser (open it in your firewall /
+      # cloud NSG, same as the web port). Bound to loopback by default. To serve a
+      # trusted LAN, set BIND_ADDR=0.0.0.0 (start.sh does this) — plain HTTP is OK
+      # on a network you control. On an untrusted network/internet, only expose it
+      # via a TLS reverse proxy (BIND_ADDR = the proxy's interface).
+      # See docs/self-hosting.md.
+      - "${BIND_ADDR:-127.0.0.1}:${IDENTITY_PORT:-8081}:8080"
+    networks: [internal]
+
+  api:
+    image: ghcr.io/teriansilva/superstatus-api:${SUPERSTATUS_VERSION:-latest}
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+      com.centurylinklabs.watchtower.scope: "superstatus"
+    environment:
+      <<: *aspnet-env
+      ConnectionStrings__SuperStatusDb: "Host=postgres;Database=SuperStatusDb;Username=${POSTGRES_USER:-superstatus};Password=${POSTGRES_PASSWORD:-superstatus_local_dev};Maximum Pool Size=20;Connection Idle Lifetime=30"
+      # Internal back-channel authority (compose DNS). #358: IDP_PUBLIC_HTTP is unset
+      # in dynamic mode, so the API validates the machine (client-credentials) token
+      # against this internal authority — the token is minted + validated entirely
+      # over the container network, so no request-host derivation is involved.
+      IDP_HTTP: ${IDP_HTTP:-http://identity:8080}
+      # Reverse-proxy / pinned override — null-map: forwarded from .env when set,
+      # omitted (⇒ dynamic self-host) when unset. See §5.
+      IDP_PUBLIC_HTTP:
+      APPLY_MIGRATIONS: "true"
+      # #334: the update engine (docker-compose.watchtower.yml) layers
+      # SUPERSTATUS_UPDATE_TRIGGER_URL + SUPERSTATUS_UPDATE_TOKEN onto this service.
+      # Absent ⇒ no engine ⇒ CanApplyInApp=false and the console shows the guided
+      # command. Whether auto-update is ON, and at what time, is a persisted setting
+      # (SiteSettings), not an env var.
+      # Populate the dashboard with sample checks on first run (no-op once the
+      # status-check table is non-empty). Set to "false" to start empty.
+      SEED_SAMPLE_DATA: ${SEED_SAMPLE_DATA:-true}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      identity:
+        condition: service_healthy
+    healthcheck: *http-health
+    networks: [internal]
+
+  web:
+    image: ghcr.io/teriansilva/superstatus-web:${SUPERSTATUS_VERSION:-latest}
+    restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+      com.centurylinklabs.watchtower.scope: "superstatus"
+    environment:
+      <<: *aspnet-env
+      # Internal back-channel authority (metadata/token/JWKS). #358: in dynamic mode
+      # IDP_PUBLIC_HTTP + WEBAPP_HTTP are unset, so Web rebuilds the browser-facing
+      # authorize/logout redirect from the request host on IDENTITY_PORT (the
+      # published identity port the browser reaches), while back-channel stays here.
+      IDP_HTTP: ${IDP_HTTP:-http://identity:8080}
+      IDENTITY_PORT: ${IDENTITY_PORT:-8081}
+      # Reverse-proxy / pinned override — null-map: forwarded from .env when set,
+      # omitted (⇒ dynamic self-host) when unset. See §5.
+      WEBAPP_HTTP:
+      IDP_PUBLIC_HTTP:
+      OIDC_WEB_CLIENT_SECRET: ${OIDC_WEB_CLIENT_SECRET:-superstatus_local_dev_oidc}
+      # Aspire-style service discovery: how Web reaches the API on the compose
+      # network.
+      services__apiservice__http__0: "http://api:8080"
+      # #326: persist DataProtection keys (antiforgery + OIDC/auth cookies) across
+      # container recreates. Distinct volume from Identity — each app's own keyring.
+      DATAPROTECTION_KEYS_DIR: /keys
+    depends_on:
+      api:
+        condition: service_healthy
+      identity:
+        condition: service_healthy
+    healthcheck: *http-health
+    volumes:
+      - web-dpkeys:/keys
+    ports:
+      # Loopback-only by default (see the identity service above).
+      - "${BIND_ADDR:-127.0.0.1}:${WEB_PORT:-8080}:8080"
+    networks: [internal]
+
+volumes:
+  pgdata:
+  # #326: DataProtection keyrings, one per app, so logins/antiforgery survive
+  # container recreates (Watchtower auto-update, `docker compose pull`).
+  identity-dpkeys:
+  web-dpkeys:
+
+networks:
+  internal:
+    driver: bridge

@@ -1,0 +1,19 @@
+﻿@model ErrorViewModel
+
+@* Issue #151 Phase 2: HUD error card. *@
+<div class="hud-auth-card wide">
+    <div class="hud-auth-head">
+        <span class="tag critical"><span class="led down"></span>Error</span>
+    </div>
+    <p class="hud-auth-intro">
+        Something went wrong while processing your request.
+        @if (!string.IsNullOrEmpty(Model.Error))
+        {
+            <br /><strong>@Model.Error</strong>
+        }
+        @if (!string.IsNullOrEmpty(Model.ErrorDescription))
+        {
+            <br /><small>@Model.ErrorDescription</small>
+        }
+    </p>
+</div>

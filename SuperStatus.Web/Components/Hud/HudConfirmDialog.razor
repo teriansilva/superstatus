@@ -1,0 +1,37 @@
+@*
+    HudConfirmDialog — reusable confirm/destructive modal, HUD-skinned (#164).
+    Opt into the #147 dialog skin via Class="hud-dialog". Returns DialogResult
+    Ok(true) on confirm, Cancel otherwise.
+*@
+<MudDialog Class="hud-dialog">
+    <TitleContent>
+        <div class="hud-dialog-head">
+            <span class="tag @(Danger ? "critical" : "accent")">
+                <span class="led @(Danger ? "down" : "up")"></span>@Tag
+            </span>
+            <span class="hud-dialog-name">@Title</span>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        <p class="hud-confirm-msg">@Message</p>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Variant="Variant.Outlined" Color="Color.Secondary">@CancelText</MudButton>
+        <MudButton OnClick="Confirm" Variant="Variant.Filled" Color="@(Danger ? Color.Error : Color.Primary)">@ConfirmText</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public string Title { get; set; } = "Confirm";
+    [Parameter] public string Tag { get; set; } = "Confirm";
+    [Parameter] public string Message { get; set; } = "";
+    [Parameter] public string ConfirmText { get; set; } = "Confirm";
+    [Parameter] public string CancelText { get; set; } = "Cancel";
+    /// <summary>Destructive styling (red tag + red confirm button).</summary>
+    [Parameter] public bool Danger { get; set; }
+
+    private void Confirm() => MudDialog.Close(DialogResult.Ok(true));
+    private void Cancel() => MudDialog.Cancel();
+}

@@ -1,0 +1,112 @@
+@*
+    HudDashboardHero — Home hero summary panel (issue #95 Phase 3a).
+
+    Consumes the /statuscheck/summary aggregation (#104) and renders the
+    tactical hero: a HudPanel whose accent escalates with overall state
+    (primary green when up, critical red when any service is down), a
+    HudCallsign one-liner, and a HudTelemetryStrip of the headline
+    metrics.
+
+    Polls on the same cadence as the service list. Calm states:
+      - summary null (telemetry endpoint unreachable) → "TELEMETRY //
+        UNAVAILABLE" rather than a crash or misleading zeros.
+      - 0 services → "OPERATIONAL // 0 of 0 services" (honest empty).
+*@
+@using SuperStatus.Configuration
+@using SuperStatus.Data.ViewModels
+@inject StatusApiClient StatusApi
+@implements IAsyncDisposable
+
+@if (_summary is null)
+{
+    <HudPanel ExtraClass="hero-frame">
+        <HudCallsign Label="TELEMETRY" Value="Unavailable" Meta="@_metaLine" />
+        <p class="hero-note">Summary telemetry is not reachable right now. The service list below polls independently.</p>
+    </HudPanel>
+}
+else
+{
+    <HudPanel Accent="@HeroAccent" ExtraClass="hero-frame">
+        <HudCallsign Label="@HeroLabel" Value="@HeroValue" Meta="@_metaLine" />
+        <HudTelemetryStrip>
+            <HudChip K="Up" V="@_summary.Services.Up.ToString()" Tone="accent" />
+            <HudChip K="Degraded" V="@_summary.Services.Degraded.ToString()" Tone="@(_summary.Services.Degraded > 0 ? "degraded" : "")" />
+            <HudChip K="Down" V="@_summary.Services.Down.ToString()" Tone="@(_summary.Services.Down > 0 ? "critical" : "")" />
+            <HudChip K="Avg latency" V="@LatencyLabel(_summary.LatencyMs.Avg)" />
+            <HudChip K="P95 latency" V="@LatencyLabel(_summary.LatencyMs.P95)" />
+            <HudChip K="Uptime 30d" V="@UptimeLabel" Tone="accent" />
+            <HudChip K="Incidents 30d" V="@_summary.Incidents30d.ToString()" Tone="@(_summary.Incidents30d > 0 ? "degraded" : "")" />
+        </HudTelemetryStrip>
+    </HudPanel>
+}
+
+@code {
+    private DashboardSummaryViewModel? _summary;
+    private string _metaLine = "";
+    private PeriodicTimer? _timer;
+    private readonly CancellationTokenSource _cts = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        _timer = new PeriodicTimer(TimeSpan.FromSeconds(Math.Max(5, SuperStatusConfig.StatusCheckViewRefreshIntervalInSeconds)));
+        _ = PollAsync();
+    }
+
+    private async Task PollAsync()
+    {
+        try
+        {
+            while (await _timer!.WaitForNextTickAsync(_cts.Token))
+            {
+                await LoadAsync();
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private async Task LoadAsync()
+    {
+        _summary = await StatusApi.GetDashboardSummaryAsync(_cts.Token);
+        _metaLine = $"UTC {DateTime.UtcNow:HH:mm:ss}";
+    }
+
+    // Hero accent: critical (red brackets) only when something is actually
+    // down; otherwise the white "primary" frame for the page hero.
+    private string HeroAccent => _summary?.Overall == "down" ? "critical" : "primary";
+
+    private string HeroLabel => _summary?.Overall switch
+    {
+        "down"     => "CRITICAL",
+        "degraded" => "ELEVATED",
+        _          => "OPERATIONAL",
+    };
+
+    private string HeroValue
+    {
+        get
+        {
+            if (_summary is null) return "Unavailable";
+            var s = _summary.Services;
+            return _summary.Overall switch
+            {
+                "down"     => $"{s.Down} of {s.Total} services down",
+                "degraded" => $"{s.Degraded} of {s.Total} services degraded",
+                _          => $"{s.Up} of {s.Total} services healthy",
+            };
+        }
+    }
+
+    private string UptimeLabel => _summary is null ? "—" : $"{_summary.Uptime30dPct:0.00}%";
+
+    private static string LatencyLabel(int? ms) => ms is null ? "—" : $"{ms} ms";
+
+    public async ValueTask DisposeAsync()
+    {
+        try { _cts.Cancel(); } catch { }
+        _timer?.Dispose();
+        _cts.Dispose();
+        await ValueTask.CompletedTask;
+    }
+}

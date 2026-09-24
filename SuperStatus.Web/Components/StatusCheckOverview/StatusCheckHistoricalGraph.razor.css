@@ -1,0 +1,26 @@
+/* Equal-width chips using CSS Grid (simplest) */
+.historical-graph {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    gap: 4px;
+}
+
+/* Make the tooltip container stretch to its grid cell */
+.historical-graph-item {
+    width: 100%;
+}
+
+/* Ensure the chip fills the cell */
+.historical-graph-chip {
+    width: 100%;
+    justify-content: center; /* centers the label horizontally */
+    padding-left: 0;
+    padding-right: 0;
+}
+
+/* Optional: reduce internal chip height if you want a bar look */
+.historical-graph-chip .mud-chip-label {
+    width: 100%;
+    text-align: center;
+}

@@ -1,0 +1,174 @@
+@*
+    EnablePushButton — issue #241 Phase C.
+
+    A self-contained "browser notifications" control: enable/disable Web Push for
+    the CURRENT device. Reused on the settings panel and the setup wizard. Owns the
+    browser round-trip (permission + PushManager via wwwroot/js/push.js) and the
+    server round-trip (fetch VAPID key, POST/DELETE the subscription via PushApiClient).
+
+    Subscription state is per-device (lives in the browser), so the control probes
+    the browser on first render rather than reading server state. Degrades calmly:
+    an unsupported browser, a non-HTTPS context, or a blocked permission shows a hint
+    instead of a dead button.
+*@
+@inject PushApiClient PushApi
+@inject IJSRuntime JS
+@inject ISnackbar Snackbar
+
+<div class="@ContainerClass">
+    @if (!Compact)
+    {
+        <span class="settings-label">Browser notifications</span>
+        <span class="settings-hint">Get a desktop or mobile push when a check with web-push alerts enabled goes down. Enabled per device.</span>
+    }
+
+    @if (!_probed)
+    {
+        <span class="settings-hint">Checking this device…</span>
+    }
+    else if (!_supported)
+    {
+        <span class="settings-hint">This browser doesn't support web push, or the page isn't served over HTTPS.</span>
+    }
+    else if (_denied)
+    {
+        <span class="settings-hint">Notifications are blocked for this site in your browser settings. Re-allow them there, then reload.</span>
+    }
+    else
+    {
+        <div class="settings-actions">
+            @if (_enabled)
+            {
+                <button class="btn" type="button" @onclick="Disable" disabled="@_busy">
+                    @(_busy ? "Working…" : "Disable on this device")
+                </button>
+                <span class="settings-hint">✓ This device will receive alerts.</span>
+            }
+            else
+            {
+                <button class="btn primary" type="button" @onclick="Enable" disabled="@_busy">
+                    @(_busy ? "Working…" : "Allow push on this browser")
+                </button>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public bool Compact { get; set; }
+    [Parameter] public EventCallback OnSubscriptionChanged { get; set; }
+
+    private bool _probed;
+    private bool _supported;
+    private bool _denied;
+    private bool _enabled;
+    private bool _busy;
+
+    private string ContainerClass => Compact ? "push-control compact" : "settings-section";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            _supported = await JS.InvokeAsync<bool>("superPush.isSupported");
+            if (_supported)
+            {
+                _denied = await JS.InvokeAsync<string>("superPush.permission") == "denied";
+                _enabled = await JS.InvokeAsync<bool>("superPush.isSubscribed");
+            }
+        }
+        catch
+        {
+            // Loose/SSR or a JS error — treat as unsupported so the UI stays calm.
+            _supported = false;
+        }
+        _probed = true;
+        StateHasChanged();
+    }
+
+    private async Task Enable()
+    {
+        if (_busy) return;
+        _busy = true;
+        try
+        {
+            var key = await PushApi.GetVapidKeyAsync();
+            if (string.IsNullOrEmpty(key))
+            {
+                Snackbar.Add("Couldn't get the notification key from the server.", Severity.Error);
+                return;
+            }
+
+            var sub = await JS.InvokeAsync<PushSub?>("superPush.subscribe", key);
+            if (sub is null || string.IsNullOrEmpty(sub.Endpoint))
+            {
+                // Permission refused, or the browser couldn't subscribe.
+                _denied = await JS.InvokeAsync<string>("superPush.permission") == "denied";
+                Snackbar.Add("Notifications weren't enabled.", Severity.Warning);
+                return;
+            }
+
+            try
+            {
+                await PushApi.SubscribeAsync(sub.Endpoint, sub.P256dh, sub.Auth, sub.UserAgent);
+            }
+            catch
+            {
+                // The browser subscribed but the server didn't record it. Leaving the
+                // local subscription in place would make the device look enabled (the
+                // next probe sees isSubscribed() == true) while the server has no
+                // endpoint to push to — alerts would silently never arrive. Roll the
+                // browser subscription back so the control reports "Enable" again and
+                // the operator can retry cleanly.
+                try { await JS.InvokeAsync<string?>("superPush.unsubscribe"); }
+                catch { /* best effort — nothing more we can do client-side */ }
+                throw;
+            }
+
+            _enabled = true;
+            await OnSubscriptionChanged.InvokeAsync();
+            Snackbar.Add("Notifications enabled on this device.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Couldn't enable notifications: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task Disable()
+    {
+        if (_busy) return;
+        _busy = true;
+        try
+        {
+            var endpoint = await JS.InvokeAsync<string?>("superPush.unsubscribe");
+            if (!string.IsNullOrEmpty(endpoint))
+                await PushApi.UnsubscribeAsync(endpoint);
+            _enabled = false;
+            await OnSubscriptionChanged.InvokeAsync();
+            Snackbar.Add("Notifications disabled on this device.", Severity.Normal);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Couldn't disable notifications: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    // Shape returned by superPush.subscribe (camelCase from JS; matched case-insensitively).
+    public sealed class PushSub
+    {
+        public string Endpoint { get; set; } = string.Empty;
+        public string P256dh { get; set; } = string.Empty;
+        public string Auth { get; set; } = string.Empty;
+        public string? UserAgent { get; set; }
+    }
+}

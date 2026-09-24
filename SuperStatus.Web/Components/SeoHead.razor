@@ -1,0 +1,73 @@
+@*
+    SeoHead — issue #269. Server-rendered SEO + social metadata for the public
+    status page, branded from SiteSettings and host-correct (works on any
+    self-hoster domain via the request host). It lives in App.razor's <head>; the
+    host is statically rendered, so this metadata is in the INITIAL HTML and
+    crawlable even though the app body is interactive (prerender:false). Degrades
+    to SuperStatus defaults if settings can't be read.
+*@
+@using System.Text.Json
+@using SuperStatus.Data.ViewModels
+@inject SettingsApiClient SettingsApi
+
+<title>@_title</title>
+<meta name="description" content="@_description" />
+<link rel="canonical" href="@_url" />
+<meta name="robots" content="index, follow, max-image-preview:large" />
+<meta name="theme-color" content="#0b0f14" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="@_siteName" />
+<meta property="og:title" content="@_title" />
+<meta property="og:description" content="@_description" />
+<meta property="og:url" content="@_url" />
+@if (!string.IsNullOrEmpty(_image))
+{
+    <meta property="og:image" content="@_image" />
+    <meta name="twitter:image" content="@_image" />
+}
+<meta name="twitter:card" content="summary" />
+<meta name="twitter:title" content="@_title" />
+<meta name="twitter:description" content="@_description" />
+<script type="application/ld+json">@((MarkupString)_jsonLd)</script>
+
+@code {
+    [CascadingParameter] public HttpContext? HttpContext { get; set; }
+
+    private string _siteName = "SuperStatus";
+    private string _title = "SuperStatus — Service Status";
+    private string _description = "Live service status, uptime, and incident history, powered by SuperStatus.";
+    private string _url = "/";
+    private string _image = string.Empty;
+    private string _jsonLd = "{}";
+
+    protected override async Task OnInitializedAsync()
+    {
+        // GetSettingsAsync already degrades to defaults on transport failure.
+        SiteSettingsViewModel s = await SettingsApi.GetSettingsAsync();
+
+        _siteName = string.IsNullOrWhiteSpace(s.Title) ? "SuperStatus" : s.Title!.Trim();
+        _title = $"{_siteName} — Service Status";
+        _description = $"Live service status, uptime, and incident history for {_siteName}. Real-time monitoring powered by SuperStatus.";
+
+        var req = HttpContext?.Request;
+        var origin = req is not null && req.Host.HasValue ? $"{req.Scheme}://{req.Host.Value}" : string.Empty;
+        _url = origin.Length > 0 ? $"{origin}/" : "/";
+
+        if (!string.IsNullOrWhiteSpace(s.LogoUrl))
+            _image = s.LogoUrl!;
+        else if (origin.Length > 0)
+            _image = $"{origin}/_content/SuperStatus.Ui.Shared/favicon.png";
+
+        // Build with a dictionary so the reserved @context/@type keys serialize
+        // verbatim; System.Text.Json HTML-escapes < > & so the embedded JSON is
+        // safe inside the <script> even if a branded value contains markup.
+        _jsonLd = JsonSerializer.Serialize(new Dictionary<string, object?>
+        {
+            ["@context"] = "https://schema.org",
+            ["@type"] = "WebSite",
+            ["name"] = _title,
+            ["url"] = _url,
+            ["description"] = _description,
+        });
+    }
+}

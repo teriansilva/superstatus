@@ -1,0 +1,80 @@
+/* Alert delivery-log audit panel (issue #241/#253, mirrors WebhookLogPanel). */
+
+::deep .al-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: var(--s-3, 12px);
+}
+::deep .al-toggle {
+    font-family: var(--font-mono, monospace);
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-3, #6f747d);
+    background: transparent;
+    border: 1px solid var(--line, rgba(255,255,255,0.08));
+    padding: 5px 10px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+::deep .al-toggle.on {
+    color: var(--status-down, #c02020);
+    border-color: var(--status-down, #c02020);
+}
+::deep .al-note {
+    color: var(--text-3, #6f747d);
+    font-size: 12px;
+    margin: var(--s-2, 8px) 0 0;
+}
+::deep .al-table {
+    font-family: var(--font-mono, monospace);
+    font-size: 12px;
+}
+::deep .al-row {
+    display: grid;
+    /* #291 Phase C: + the Profile column (after Channel). */
+    grid-template-columns: 110px 1fr 110px 78px 110px 80px 2fr;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--line, rgba(255,255,255,0.06));
+}
+::deep .al-row.al-h {
+    color: var(--text-3, #6f747d);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+}
+::deep .al-check { color: var(--text-1, #e8e9ec); }
+::deep .al-profile {
+    color: var(--text-2, #a7abb3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+::deep .al-time { color: var(--text-3, #6f747d); }
+::deep .al-chan, ::deep .al-trig { color: var(--text-2, #a7abb3); }
+::deep .al-detail {
+    color: var(--text-2, #a7abb3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+::deep .al-err {
+    color: var(--status-down, #c02020);
+    font-size: 11px;
+    padding: 2px 0 6px;
+    opacity: 0.85;
+    word-break: break-word;
+}
+/* Mobile: collapse the dense grid to Outcome / Check / Channel. */
+@media (max-width: 720px) {
+    ::deep .al-row { grid-template-columns: 90px 1fr 78px; }
+    ::deep .al-row > .al-time, ::deep .al-row > .al-profile, ::deep .al-row > .al-trig, ::deep .al-row > .al-detail { display: none; }
+    ::deep .al-row.al-h > span:nth-child(3),
+    ::deep .al-row.al-h > span:nth-child(5),
+    ::deep .al-row.al-h > span:nth-child(6),
+    ::deep .al-row.al-h > span:nth-child(7) { display: none; }
+}

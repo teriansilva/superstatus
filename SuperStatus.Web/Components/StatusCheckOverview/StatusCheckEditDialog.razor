@@ -1,0 +1,1095 @@
+@using Microsoft.AspNetCore.Components.Authorization
+@using SuperStatus.Data.Constants
+@using SuperStatus.Data.ViewModels
+@using SuperStatus.Web.Components.Admin
+
+@inject StatusApiClient StatusApi
+@inject IDialogService DialogService
+@inject NavigationManager Navigation
+@implements IDisposable
+
+@*
+    StatusCheckEditDialog — rebuilt for #291 Phase D / #293 Phase C around the
+    linked entities; decluttered into three sections on a two-column grid for
+    #336 (per the approved mockup):
+
+      BASICS     — title + enabled on one row / description / logo.
+      MONITORING — provider type + cadence on one row, the schema-driven
+                   config fields (#312: text/secret full-width, number/select/
+                   bool half-width), the heartbeat ping-URL callout (#320),
+                   and the SLA picker (single-select + "+ New…" quick-create).
+                   The legacy "Expected Response Time (ms)" field is GONE —
+                   the SLA defines the slow threshold and day-color tolerance.
+      ALERTING   — webhook + alert-profile chip pickers ("+ New…" opens the
+                   respective edit dialog inline; on save the picker refreshes
+                   and auto-selects the new entity), the three labeled
+                   per-check trigger fields (fails / down-minutes / throttle),
+                   and the recovery + AI auto-incident opt-ins on one row.
+
+    Saves post slaId + webhookIds[] + alertProfileIds[] (the id-array path —
+    the API rejects legacy embedded fields with 422 since Phase D). Validation
+    blocks save with a message that NAMES the offending section.
+*@
+<MudDialog Class="hud-dialog">
+    <TitleContent>
+        <div class="hud-dialog-head">
+            <span class="tag accent"><span class="led up"></span>@(StatusCheck.Id > 0 ? "EDIT CHECK" : "ADD CHECK")</span>
+            <span class="hud-dialog-name">@(string.IsNullOrWhiteSpace(StatusCheck.Title) ? "New status check" : StatusCheck.Title)</span>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        @* #312: a stored config that can't be validated against its provider's schema
+           disables the check — surface the calm reason here (matches the scheduler /
+           run-now gate) rather than letting it look healthy. *@
+        @if (!StatusCheck.ConfigValid)
+        {
+            <div class="hud-dialog-config-disabled chk-config-disabled">
+                <span class="led degraded"></span>
+                <div>
+                    <div class="cd-title">Check disabled — fix config</div>
+                    <div class="cd-msg">@StatusCheck.ConfigError</div>
+                </div>
+            </div>
+        }
+        <MudForm @ref="_form">
+
+            <div class="hud-dialog-section"><span class="sect-name">Basics</span></div>
+            <MudGrid Spacing="2">
+                <MudItem xs="12">
+                    <div class="chk-title-row">
+                        <MudTextField T="string"
+                                      @bind-Value="StatusCheck.Title"
+                                      Label="Title"
+                                      Class="chk-title"
+                                      For="@(()=>StatusCheck.Title)"
+                                      Required="true"
+                                      RequiredError="Title is required." />
+                        <MudCheckBox T="bool" @bind-Value="StatusCheck.Enabled" Color="Color.Primary" Label="Enabled" Class="chk-enabled" />
+                    </div>
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField T="string"
+                                  @bind-Value="StatusCheck.Description"
+                                  Label="Description"
+                                  For="@(()=>StatusCheck.Description)"
+                                  Lines="1"
+                                  AutoGrow="true"
+                                  Placeholder="optional" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField T="string"
+                                  @bind-Value="StatusCheck.ServiceLogoUrl"
+                                  Label="Logo URL"
+                                  For="@(()=>StatusCheck.ServiceLogoUrl)"
+                                  InputType="InputType.Url"
+                                  Placeholder="optional" />
+                </MudItem>
+            </MudGrid>
+
+            @* #312: provider Type selector + the schema-driven config block. The fields
+               below are GENERATED from the selected provider's ConfigSchema (fetched
+               from the API) — no per-type hardcoded form. Switching Type re-renders only
+               this block; the common fields (interval, SLA, notifications) stay put.
+               #336: text/secret fields span the row; number/select/bool take half. *@
+            <div class="hud-dialog-section">
+                <span class="sect-name">Monitoring</span>
+                <span class="sect-manage">manage on Admin → SLAs</span>
+            </div>
+            <MudGrid Spacing="2">
+                <MudItem xs="12" sm="6">
+                    @* #432: MudSelect paints the CONTENT OF THE MATCHING MudSelectItem, so a
+                       value with no item renders an empty box — a labelled "TYPE" field with
+                       nothing in it. That happened in two places: for the whole window before
+                       the descriptors arrived (no items yet), and permanently for a stored type
+                       this build has no provider for. Gate on the load to kill the first, and
+                       carry an explicit item for an unregistered type to kill the second. *@
+                    @if (_providersLoaded)
+                    {
+                        <MudSelect T="string"
+                                   Value="_providerType"
+                                   ValueChanged="OnProviderTypeChanged"
+                                   Label="Type"
+                                   Class="chk-provider-type"
+                                   Dense="true">
+                            @foreach (var p in _providers)
+                            {
+                                <MudSelectItem T="string" Value="@p.TypeId">@p.DisplayName</MudSelectItem>
+                            }
+                            @if (UnregisteredType is { } unknown)
+                            {
+                                @* Selectable, so MudSelect has something to paint — but it names
+                                   itself as not installed rather than posing as a real option. The
+                                   #312 rule is untouched: the stored type is still never rewritten
+                                   unless the operator picks a different one. *@
+                                <MudSelectItem T="string" Value="@unknown" Class="chk-provider-unknown">@unknown — not installed</MudSelectItem>
+                            }
+                        </MudSelect>
+                    }
+                </MudItem>
+                <MudItem xs="12" sm="6">
+                    @* Issue #82: per-check polling cadence. Server clamps to
+                       5–3600 s on save; this Min/Max is the advisory client guard. *@
+                    <MudNumericField T="int"
+                                     @bind-Value="StatusCheck.IntervalSeconds"
+                                     Label="Every"
+                                     Class="chk-interval"
+                                     Min="5"
+                                     Max="3600"
+                                     HideSpinButtons="true"
+                                     Adornment="Adornment.End"
+                                     AdornmentText="s"
+                                     HelperText="How often this check runs (5–3600 s)." />
+                </MudItem>
+                @* #433: the AI provider renders in a GUIDED order rather than raw schema order —
+                   identify the endpoint, validate it, then choose from the models it reported,
+                   then the rest. OrderedVisibleFields() does the ordering; the validate row is
+                   emitted at the seam. Every other provider keeps the flat loop, unchanged. *@
+                @foreach (var field in OrderedVisibleFields())
+                {
+                    @* The seam: everything above identifies the endpoint, everything below
+                       depends on knowing which models it serves. *@
+                    if (IsAiProvider && field.Key == AiModelKey)
+                    {
+                        @AiValidateRow
+                    }
+                    @* #433: once discovery has returned real model ids, Model becomes a picker
+                       over them instead of a free-text box. An endpoint with no /models route
+                       keeps the plain text field — never a dead end. *@
+                    if (IsAiProvider && field.Key == AiModelKey && _discoveredModels.Count > 0)
+                    {
+                        <MudItem xs="12" @key="field.Key">
+                            <MudSelect T="string" Value="@GetCfg(field.Key)" ValueChanged="@(v => SetCfg(field.Key, v))"
+                                       Label="@field.Label" Dense="true" Class="chk-cfg-model chk-ai-model-select"
+                                       Validation="@CfgValidation(field)">
+                                @foreach (var id in _discoveredModels)
+                                {
+                                    <MudSelectItem T="string" Value="@id">@id</MudSelectItem>
+                                }
+                            </MudSelect>
+                            <p class="hud-dialog-helper">@_discoveredModels.Count model@(_discoveredModels.Count == 1 ? "" : "s") reported by this endpoint.</p>
+                        </MudItem>
+                        continue;
+                    }
+                    <MudItem xs="12" sm="@(FieldSpan(field))" @key="field.Key">
+                        @switch (field.Kind)
+                        {
+                            case "select":
+                                <MudSelect T="string" Value="@GetCfg(field.Key)" ValueChanged="@(v => SetCfg(field.Key, v))"
+                                           Label="@field.Label" Dense="true" Class="@($"chk-cfg-{field.Key}")"
+                                           Validation="@CfgValidation(field)">
+                                    @foreach (var opt in field.Options)
+                                    {
+                                        <MudSelectItem T="string" Value="@opt.Value">@opt.Label</MudSelectItem>
+                                    }
+                                </MudSelect>
+                                break;
+                            case "bool":
+                                <MudCheckBox T="bool" Value="@GetCfgBool(field.Key)" ValueChanged="@(v => SetCfgBool(field.Key, v))"
+                                             Color="Color.Primary" Label="@field.Label" Class="@($"chk-cfg-{field.Key}")" />
+                                break;
+                            case "secret":
+                                <MudTextField T="string" Value="@GetCfg(field.Key)" ValueChanged="@(v => SetCfg(field.Key, v))"
+                                              Label="@field.Label" InputType="InputType.Password"
+                                              Placeholder="@SecretPlaceholder(field)" Class="@($"chk-cfg-{field.Key}")"
+                                              Validation="@CfgValidation(field)" />
+                                break;
+                            case "number":
+                                <MudTextField T="string" Value="@GetCfg(field.Key)" ValueChanged="@(v => SetCfg(field.Key, v))"
+                                              Label="@field.Label" InputType="InputType.Number"
+                                              Placeholder="@field.Placeholder" Class="@($"chk-cfg-{field.Key}")"
+                                              Validation="@CfgValidation(field)" />
+                                break;
+                            case "json":
+                                <MudTextField T="string" Value="@GetCfg(field.Key)" ValueChanged="@(v => SetCfg(field.Key, v))"
+                                              Label="@field.Label" Lines="7" AutoGrow="true"
+                                              Placeholder="@field.Placeholder" Class="@($"chk-cfg-{field.Key}")"
+                                              Validation="@CfgValidation(field)" />
+                                break;
+                            default:
+                                <MudTextField T="string" Value="@GetCfg(field.Key)" ValueChanged="@(v => SetCfg(field.Key, v))"
+                                              Label="@field.Label" Placeholder="@field.Placeholder" Class="@($"chk-cfg-{field.Key}")"
+                                              Validation="@CfgValidation(field)" />
+                                break;
+                        }
+                        @if (!string.IsNullOrWhiteSpace(field.Help))
+                        {
+                            <p class="hud-dialog-helper">@field.Help</p>
+                        }
+                    </MudItem>
+                }
+                @if (IsAiProvider && !AiFieldsRevealed)
+                {
+                    @AiValidateRow
+                }
+                @* #320 Phase 2b: the agent-heartbeat ping URL. It's a credential, so it's
+                   read-only here (operator-authenticated) and only exists once the check is
+                   saved (the token is generated on create). Regenerate rotates it and
+                   immediately invalidates the old URL. *@
+                @if (_providerType == "heartbeat")
+                {
+                    <MudItem xs="12">
+                        <div class="hud-heartbeat chk-heartbeat">
+                            @if (_heartbeatLoading)
+                            {
+                                <p class="hud-dialog-helper">Loading ping URL…</p>
+                            }
+                            else if (_heartbeatUrl is not null)
+                            {
+                                <div class="hb-label">Ping URL</div>
+                                <code class="hb-url chk-heartbeat-url">@_heartbeatUrl</code>
+                                <p class="hud-dialog-helper">
+                                    Have your agent / cron / worker hit this URL (GET or POST) every run.
+                                    The check goes down if no ping arrives within interval + grace.
+                                    Keep the URL secret — anyone with it can report this check healthy.
+                                </p>
+                                <button type="button" class="picker-add chk-heartbeat-regen" @onclick="RegenerateHeartbeatAsync" disabled="@_heartbeatBusy">
+                                    @(_heartbeatBusy ? "Regenerating…" : "Regenerate URL")
+                                </button>
+                            }
+                            else
+                            {
+                                <p class="hud-dialog-helper">The ping URL is generated when you save this check — re-open it to copy the URL.</p>
+                            }
+                        </div>
+                    </MudItem>
+                }
+                <MudItem xs="12" sm="6">
+                    <div class="picker-row">
+                        <MudSelect T="long?"
+                                   @bind-Value="_slaId"
+                                   Label="SLA"
+                                   Class="chk-sla"
+                                   Dense="true">
+                            @foreach (var sla in _slas)
+                            {
+                                <MudSelectItem T="long?" Value="@((long?)sla.Id)">@sla.Name@(sla.IsDefault ? " ★" : "")</MudSelectItem>
+                            }
+                        </MudSelect>
+                        <button type="button" class="picker-add chk-sla-new" @onclick="NewSlaAsync">+ New…</button>
+                    </div>
+                    <p class="hud-dialog-helper">defines slow threshold + day color tolerance</p>
+                </MudItem>
+            </MudGrid>
+
+            <div class="hud-dialog-section">
+                <span class="sect-name">Alerting</span>
+                <span class="sect-manage">manage on Admin → Webhooks · Alerts</span>
+            </div>
+            <MudGrid Spacing="2">
+                <MudItem xs="12">
+                    <div class="picker-label">Webhooks — fire on failure</div>
+                    <div class="picker-chips chk-webhooks">
+                        @foreach (var w in _webhooks)
+                        {
+                            <button type="button"
+                                    class="pick-chip @(_webhookIds.Contains(w.Id) ? "on" : "")"
+                                    @onclick="() => ToggleWebhook(w.Id)">
+                                @w.Name@(_webhookIds.Contains(w.Id) ? " ×" : "")
+                            </button>
+                        }
+                        <button type="button" class="picker-add chk-webhook-new" @onclick="NewWebhookAsync">+ New…</button>
+                    </div>
+                </MudItem>
+                <MudItem xs="12">
+                    <div class="picker-label">Alert profiles — who gets notified</div>
+                    <div class="picker-chips chk-profiles">
+                        @foreach (var p in _profiles)
+                        {
+                            <button type="button"
+                                    class="pick-chip @(_profileIds.Contains(p.Id) ? "on" : "")"
+                                    @onclick="() => ToggleProfile(p.Id)">
+                                @p.Name@(_profileIds.Contains(p.Id) ? " ×" : "")
+                            </button>
+                        }
+                        <button type="button" class="picker-add chk-profile-new" @onclick="NewProfileAsync">+ New…</button>
+                    </div>
+                </MudItem>
+                <MudItem xs="12">
+                    @* #241/#253: the per-check trigger rules stay embedded —
+                       they describe THIS check's outage, not a reusable target. *@
+                    <div class="trigger-grid chk-trigger">
+                        <MudNumericField T="int" @bind-Value="StatusCheck.AlertOnFailureThreshold" Label="Alert after"
+                                         Adornment="Adornment.End" AdornmentText="fails"
+                                         Class="chk-fails" Min="0" Margin="Margin.Dense" HideSpinButtons="true" />
+                        <MudNumericField T="int" @bind-Value="StatusCheck.AlertOnOutageMinutes" Label="Or down for"
+                                         Adornment="Adornment.End" AdornmentText="min"
+                                         Class="chk-downmin" Min="0" Margin="Margin.Dense" HideSpinButtons="true" />
+                        <MudNumericField T="int" @bind-Value="StatusCheck.AlertThrottleMinutes" Label="Throttle"
+                                         Adornment="Adornment.End" AdornmentText="min"
+                                         Class="chk-throttle" Min="0" Margin="Margin.Dense" HideSpinButtons="true" />
+                    </div>
+                    <p class="hud-dialog-helper">0 = off · applies to every linked webhook / profile</p>
+                </MudItem>
+                <MudItem xs="12">
+                    <div class="chk-optins">
+                        <MudCheckBox T="bool" @bind-Value="StatusCheck.AlertOnRecovery" Color="Color.Primary" Label="Notify on recovery" />
+                        @* Issue #168: per-check opt-in for AI-authored incidents on sustained
+                           downtime. Only fires when the instance's AI settings are enabled. *@
+                        <MudCheckBox T="bool" @bind-Value="StatusCheck.AutoIncidentEnabled" Color="Color.Primary"
+                                     Label="Auto-draft incident if down persists" />
+                    </div>
+                </MudItem>
+            </MudGrid>
+
+            @if (_validationError is not null)
+            {
+                <p class="hud-dialog-error chk-validation">@_validationError</p>
+            }
+
+            @* #433: the dry-run verdict, rendered just above the actions so it reads as the
+               result of the button beside them. It commits nothing — hence the explicit
+               "not saved". *@
+            @if (_testResult is { } test)
+            {
+                <div class="chk-test-verdict test-verdict @TestTone(test)">
+                    <div class="line1">
+                        <span class="dot"></span>
+                        <span class="t">@test.Outcome</span>
+                        <span class="when">tested just now · not saved</span>
+                    </div>
+                    @if (test.Metrics.Count > 0)
+                    {
+                        <div class="metrics">
+                            @foreach (var m in test.Metrics)
+                            {
+                                <span class="m">@m.Label <b>@m.Value.ToString("0.##")</b> <i>@m.Unit</i></span>
+                            }
+                        </div>
+                    }
+                    else if (test.LatencyMs > 0)
+                    {
+                        <div class="metrics"><span class="m">Latency <b>@test.LatencyMs</b> <i>ms</i></span></div>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(test.Message))
+                    {
+                        <div class="msg">@test.Message</div>
+                    }
+                </div>
+            }
+
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        @* #433: a dry run commits nothing, so it sits apart from Cancel/Save rather than
+           beside them. Hidden for push providers (nothing to reach out to); visibly disabled
+           — never silently inert — while a call is in flight or a save is running. *@
+        @if (CanTestProvider)
+        {
+            <MudButton OnClick="TestConnectionAsync"
+                       Disabled="@(_testing || _submitting || !ProviderConfigComplete)"
+                       Variant="Variant.Outlined" Class="chk-test-btn mr-auto"
+                       Title="@(ProviderConfigComplete ? null : "Fill the required fields first")">
+                @(_testing ? "Testing…" : "Test connection")
+            </MudButton>
+        }
+        <MudButton OnClick="Cancel" Variant="Variant.Outlined" Color="Color.Secondary">Cancel</MudButton>
+        <MudButton OnClick="SubmitAsync" Disabled="@_submitting" Color="Color.Primary" Variant="Variant.Filled">
+            @(!_submitting ? "Save" : "Saving...")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+
+@code {
+
+    /// <summary>#433: the validate action + its inline verdict, plus (while the downstream
+    /// fields are collapsed) the panel explaining why they are. A fragment because it is
+    /// emitted at one of two positions — just before Model once the fields are revealed, or
+    /// last while they are still collapsed.</summary>
+    private RenderFragment AiValidateRow => @<div class="chk-ai-validate-host">
+                    <MudItem xs="12" Class="chk-ai-validate">
+                        <div class="validate-row">
+                            <button type="button" class="picker-add chk-ai-validate-btn @(_modelsDiscovered ? "on" : "")"
+                                    @onclick="ValidateEndpointAsync" disabled="@_validating">
+                                @(_validating ? "Validating…" : _validateState is null ? "Validate endpoint" : "Re-validate")
+                            </button>
+                            @if (_validating)
+                            {
+                                <span class="vstate busy chk-ai-vstate">Asking the endpoint…</span>
+                            }
+                            else if (_validateState is { } state)
+                            {
+                                <span class="vstate @state.Tone chk-ai-vstate"><span class="dot"></span>@state.Text</span>
+                            }
+                            else
+                            {
+                                <span class="vstate chk-ai-vstate muted">not checked yet</span>
+                            }
+                        </div>
+                        @if (!AiFieldsRevealed)
+                        {
+                            <div class="chk-ai-deferred">
+                                Model, canary prompt, expected content and the latency thresholds stay collapsed
+                                until the endpoint has answered once — there is nothing useful to say about a
+                                model before we know which models exist.
+                                <div class="escape">
+                                    Endpoint not reachable from here?
+                                    <button type="button" class="linklike chk-ai-manual" @onclick="RevealAiFieldsManually">Configure manually</button>
+                                    — reveals every field and saves without validating.
+                                </div>
+                            </div>
+                        }
+                    </MudItem>
+</div>;
+
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public required StatusCheckViewModelBase StatusCheck { get; set; }
+
+    private MudForm? _form;
+    private bool _submitting;
+    private string? _validationError;
+
+    private List<SlaViewModel> _slas = new();
+    private List<WebhookViewModel> _webhooks = new();
+    private List<AlertProfileViewModel> _profiles = new();
+
+    private long? _slaId;
+    private HashSet<long> _webhookIds = new();
+    private HashSet<long> _profileIds = new();
+
+    // #312: provider descriptors (fetched) + the selected type's schema fields.
+    private List<ProviderDescriptorViewModel> _providers = new();
+    private bool _providersLoaded;
+    private string _providerType = "http";
+    private List<ProviderConfigFieldViewModel> _selectedFields = new();
+
+    // #432: the selected type when NO registered provider declares it — e.g. a check stored
+    // against a provider this build doesn't ship, or one that has since been parked. MudSelect
+    // paints the matching MudSelectItem's content, so without an item for it the box renders
+    // blank; the markup adds a "— not installed" item for exactly this value. Null when the
+    // type is registered (the normal case) or nothing is selected yet.
+    private string? UnregisteredType =>
+        !string.IsNullOrWhiteSpace(_providerType) && _providers.All(p => p.TypeId != _providerType)
+            ? _providerType
+            : null;
+
+    // ---- #433: guided AI setup + the generic dry-run test ----
+
+    private const string AiTypeId = "ai";
+    private const string AiBaseUrlKey = "baseUrl";
+    private const string AiApiKeyKey = "apiKey";
+    private const string AiModelKey = "model";
+
+    /// <summary>Fields the AI flow asks for BEFORE the endpoint has answered. Everything else
+    /// is downstream of knowing which models exist.</summary>
+    private static readonly string[] AiStage1Keys = [AiBaseUrlKey, AiApiKeyKey];
+
+    private bool IsAiProvider => _providerType == AiTypeId;
+
+    private bool _validating;
+    private bool AiFieldsRevealedManually;
+    private bool _modelsDiscovered;
+    private List<string> _discoveredModels = new();
+    private (string Text, string Tone)? _validateState;
+
+    private bool _testing;
+    private CheckTestResultViewModel? _testResult;
+
+    // #433: cancellation for the two async actions, one source each. The generation counters
+    // below stop a stale REPLY being rendered; they do not stop the WORK. Without a token the
+    // dialog could be closed while a dry run was in flight and the outbound provider request,
+    // the authenticated API scope serving it, and this component instance would all stay alive
+    // until the remote end answered or the 10s/30s backstop fired. Both mechanisms are needed:
+    // cancellation is cooperative, so a provider that ignores its token still gets fenced.
+    private CancellationTokenSource? _validateCts;
+    private CancellationTokenSource? _testCts;
+
+    /// <summary>Cancel and release a source, tolerating one already disposed. Used both when an
+    /// operation is superseded and when the dialog goes away.</summary>
+    private static void CancelAndDispose(ref CancellationTokenSource? cts)
+    {
+        var doomed = cts;
+        cts = null;
+        if (doomed is null) return;
+        try { doomed.Cancel(); } catch (ObjectDisposedException) { /* already gone */ }
+        doomed.Dispose();
+    }
+
+    /// <summary>Closing the dialog — via Cancel, the × , Escape, or a save — disposes the
+    /// component, which is the moment any outstanding request stops being anybody's business.</summary>
+    public void Dispose()
+    {
+        CancelAndDispose(ref _validateCts);
+        CancelAndDispose(ref _testCts);
+    }
+
+    // #433: fencing for the two async actions. Each has its OWN generation counter — sharing
+    // one meant starting Test mid-Validate invalidated Validate's token, so Validate's finally
+    // refused to clear its busy flag and the button stayed disabled forever (and vice versa).
+    private int _validateGeneration;
+    private int _testGeneration;
+
+    /// <summary>
+    /// #433: the fence a stale reply is tested against. A generation counter alone is not
+    /// enough — editing Base URL or the API key goes through <c>SetCfg</c>, which starts no new
+    /// request and so advances no counter. Without comparing the CONFIG the request was issued
+    /// for, a reply about endpoint A lands after the operator has retyped the form for endpoint
+    /// B, and the dialog cheerfully reports B as connected while showing A's models.
+    /// So each result is applied only if the provider type AND the config it was asked about
+    /// are still what is on screen.
+    /// </summary>
+    private string ValidateFence() =>
+        string.Join('\u001f', _providerType, GetCfg(AiBaseUrlKey), GetCfg(AiApiKeyKey));
+
+    /// <summary>The dry run is issued against the WHOLE typed config, so its fence is the whole
+    /// config — any edit to any field makes an outstanding verdict stale.</summary>
+    private string TestFence() =>
+        _providerType + '\u001f' + string.Join('\u001f',
+            StatusCheck.ProviderConfig.OrderBy(kv => kv.Key, StringComparer.Ordinal)
+                                      .Select(kv => kv.Key + '=' + kv.Value));
+
+    /// <summary>
+    /// #433: the gate on the dry run — the config passes the SAME schema validation the form
+    /// already applies inline, not merely "every required box has something in it". Presence
+    /// alone let an HTTP check with <c>expectedStatusCode = "not-a-number"</c> enable Test even
+    /// though the field was already flagged invalid on screen, spending a round trip to be told
+    /// what the form knew. Reusing <see cref="CfgValidation"/> keeps the two in step by
+    /// construction — including its carve-out that a blank SECRET on a saved check is fine,
+    /// because blank means "keep the stored one" server-side.
+    /// </summary>
+    private bool ProviderConfigComplete =>
+        _selectedFields.All(f => CfgValidation(f)(GetCfg(f.Key)) is null);
+
+    /// <summary>#433: latched once the fields have been revealed. Staging is a first-run
+    /// affordance, not a state machine that can regress — without the latch, clearing
+    /// <c>_validateState</c> on a base-URL edit would collapse the form and hide canary values
+    /// the operator had already typed.</summary>
+    private bool AiStageRevealed;
+
+    /// <summary>An existing check that already has a model is fully configured — never hide its
+    /// fields behind a re-validation. Staging is for a NEW check, where the collapse is what
+    /// makes the happy path obvious.</summary>
+    private bool AiFieldsRevealed =>
+        !IsAiProvider
+        || AiFieldsRevealedManually
+        || AiStageRevealed
+        || _validateState is not null
+        || !string.IsNullOrWhiteSpace(GetCfg(AiModelKey));
+
+    /// <summary>
+    /// Which schema fields render, in the order they render. Only the AI provider reorders:
+    /// the two fields that identify the endpoint come first, then Model (the thing validation
+    /// exists to answer), then everything else in schema order. Raw schema order would put
+    /// Model between Base URL and API key, which reads as "guess the model, then authenticate"
+    /// — the opposite of the flow. Every other provider gets its schema untouched.
+    /// </summary>
+    private IEnumerable<ProviderConfigFieldViewModel> OrderedVisibleFields()
+    {
+        if (!IsAiProvider) return _selectedFields;
+
+        var stage1 = AiStage1Keys
+            .Select(k => _selectedFields.FirstOrDefault(f => f.Key == k))
+            .Where(f => f is not null)!
+            .Cast<ProviderConfigFieldViewModel>();
+
+        if (!AiFieldsRevealed) return stage1;
+
+        var model = _selectedFields.Where(f => f.Key == AiModelKey);
+        var rest = _selectedFields.Where(f => !AiStage1Keys.Contains(f.Key) && f.Key != AiModelKey);
+        return stage1.Concat(model).Concat(rest);
+    }
+
+    /// <summary>A dry run only makes sense for a PULL provider — a push check has no target to
+    /// reach out to. Descriptors carry the direction, so this needs no per-type special case.</summary>
+    private bool CanTestProvider =>
+        _providers.FirstOrDefault(p => p.TypeId == _providerType) is { } d
+        && !string.Equals(d.Direction, "push", StringComparison.OrdinalIgnoreCase);
+
+    private static string TestTone(CheckTestResultViewModel r) => r.Outcome switch
+    {
+        "up" => "up",
+        "degraded" => "degraded",
+        _ => "down",
+    };
+
+    private void RevealAiFieldsManually() => AiFieldsRevealedManually = true;
+
+    /// <summary>Ask the endpoint which models it serves, then offer them as a picker. A failure
+    /// is never a dead end: the fields reveal anyway and Model stays typeable.</summary>
+    private async Task ValidateEndpointAsync()
+    {
+        if (_validating) return;   // single-flight
+
+        string baseUrl = GetCfg(AiBaseUrlKey);
+        if (string.IsNullOrWhiteSpace(baseUrl))
+        {
+            _validateState = ("Enter the base URL first", "bad");
+            return;
+        }
+
+        int generation = ++_validateGeneration;
+        string fence = ValidateFence();
+        CancelAndDispose(ref _validateCts);          // a new validate supersedes any previous
+        var cts = _validateCts = new CancellationTokenSource();
+        _validating = true;
+        try
+        {
+            var result = await StatusApi.DiscoverAiModelsAsync(StatusCheck.Id, baseUrl, GetCfg(AiApiKeyKey), cts.Token);
+
+            // Apply only if this is still the newest validate AND the endpoint it asked about
+            // is still the one on screen. The second half is what stops a reply about endpoint
+            // A from being shown as if it described endpoint B.
+            if (generation != _validateGeneration || fence != ValidateFence()) return;
+
+            // The endpoint answered — the downstream fields stay revealed from here on, even if
+            // a later edit retires this particular verdict.
+            AiStageRevealed = true;
+
+            if (result is null)
+            {
+                _validateState = ("Could not reach the endpoint", "bad");
+            }
+            else if (result.Ok && result.SupportsListing && result.Models.Count > 0)
+            {
+                _discoveredModels = result.Models;
+                _modelsDiscovered = true;
+                _validateState = ($"Connected — {result.Models.Count} model{(result.Models.Count == 1 ? "" : "s")}", "ok");
+
+                // Keep a model the operator already typed even if the endpoint didn't list it —
+                // re-validating must never silently swap their choice for someone else's.
+                string current = GetCfg(AiModelKey);
+                if (!string.IsNullOrWhiteSpace(current) && !_discoveredModels.Contains(current))
+                    _discoveredModels.Insert(0, current);
+            }
+            else if (result.Ok)
+            {
+                // Reachable, but no model list. Free-text Model, and say why.
+                _discoveredModels = new();
+                _modelsDiscovered = false;
+                _validateState = ("Reachable — no model list", "warn");
+            }
+            else
+            {
+                _discoveredModels = new();
+                _modelsDiscovered = false;
+                _validateState = (result.Message ?? "Could not reach the endpoint", "bad");
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // The dialog went away, or a newer validate superseded this one. Either way there
+            // is nobody to show a verdict to.
+        }
+        finally
+        {
+            // Cleared by whichever validate is newest — never gated on the other action's
+            // counter, which is what previously stranded the button in "Validating…".
+            if (generation == _validateGeneration) _validating = false;
+            if (ReferenceEquals(cts, _validateCts)) CancelAndDispose(ref _validateCts);
+        }
+    }
+
+    /// <summary>Run one real probe against exactly what is typed in the dialog. Saves nothing,
+    /// records nothing — the result is a verdict for the operator, not a tick.</summary>
+    private async Task TestConnectionAsync()
+    {
+        if (_testing) return;   // single-flight
+
+        int generation = ++_testGeneration;
+        string fence = TestFence();
+        CancelAndDispose(ref _testCts);
+        var cts = _testCts = new CancellationTokenSource();
+        _testing = true;
+        _testResult = null;
+        try
+        {
+            var result = await StatusApi.TestCheckProviderAsync(_providerType, StatusCheck.Id, StatusCheck.ProviderConfig, cts.Token);
+            if (generation != _testGeneration || fence != TestFence()) return;
+
+            _testResult = result ?? new CheckTestResultViewModel
+            {
+                Outcome = "down",
+                Ok = false,
+                Message = "The test could not be run.",
+            };
+        }
+        catch (OperationCanceledException)
+        {
+            // Dialog closed or superseded — no verdict to install.
+        }
+        finally
+        {
+            if (generation == _testGeneration) _testing = false;
+            if (ReferenceEquals(cts, _testCts)) CancelAndDispose(ref _testCts);
+        }
+    }
+
+    // #336: schema-driven fields flow on the two-column grid — compact kinds
+    // (number/select/bool) take half a row, free-text kinds (text/secret/json,
+    // typically URLs, tokens, and templates) keep the full row.
+    private static int FieldSpan(ProviderConfigFieldViewModel field)
+        => field.Kind is "number" or "select" or "bool" ? 6 : 12;
+
+    // #320 Phase 2b: the heartbeat ping URL (fetched over the authenticated path, never on
+    // the read VM). Null until loaded / when the check isn't yet a saved heartbeat check.
+    private const string HeartbeatTypeId = "heartbeat";
+    private string? _heartbeatUrl;
+    private bool _heartbeatLoading;
+    private bool _heartbeatBusy;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _slas = await StatusApi.GetSlasAsync();
+        _webhooks = await StatusApi.GetWebhooksAsync();
+        _profiles = await StatusApi.GetAlertProfilesAsync();
+
+        // #312: the provider catalogue + schemas. If the call fails, fall back to a
+        // built-in http descriptor so the dialog still renders its fields.
+        _providers = await StatusApi.GetCheckProvidersAsync();
+        if (_providers.Count == 0) _providers = new() { DefaultHttpDescriptor() };
+        _providersLoaded = true;
+
+        // #312: keep the stored provider type even if it isn't registered here. An
+        // unknown type is shown disabled (the banner explains) and is NEVER silently
+        // rewritten to another provider — only an explicit operator pick rewrites it
+        // (the server-side rule is "unknown disables calmly, never silently defaults").
+        _providerType = string.IsNullOrWhiteSpace(StatusCheck.ProviderType) ? "http" : StatusCheck.ProviderType;
+        StatusCheck.ProviderType = _providerType;
+        _selectedFields = _providers.FirstOrDefault(p => p.TypeId == _providerType)?.Fields ?? new();
+
+        // Seed config values: an existing check carries them (the read VM populated
+        // ProviderConfig); a new http check seeds from the VM defaults so the form is
+        // pre-filled (url empty, expected status 200) rather than blank.
+        SeedConfigDefaults();
+
+        // Selection state seeds from the read-only round-trip ids; a new check
+        // preselects the instance default SLA.
+        _slaId = StatusCheck.LinkedSlaId ?? _slas.FirstOrDefault(s => s.IsDefault)?.Id;
+        _webhookIds = StatusCheck.LinkedWebhookIds.ToHashSet();
+        _profileIds = StatusCheck.LinkedAlertProfileIds.ToHashSet();
+
+        // #320: pull the ping URL for an existing heartbeat check so it renders on open.
+        await LoadHeartbeatUrlAsync();
+    }
+
+    // #312: a static http descriptor matching HttpCheckProvider's schema, used only if
+    // the providers endpoint is unreachable, so the edit dialog degrades gracefully.
+    private static ProviderDescriptorViewModel DefaultHttpDescriptor() => new()
+    {
+        TypeId = "http",
+        DisplayName = "HTTP(S)",
+        Icon = "link",
+        SchemaVersion = 1,
+        Fields = new()
+        {
+            new() { Key = "url", Label = "URL", Kind = "text", Required = true, Help = "The endpoint to probe with a GET request.", Placeholder = "https://api.example.com/health" },
+            new() { Key = "expectedStatusCode", Label = "Expected status", Kind = "number", Required = true, Help = "The HTTP status code that counts as healthy (e.g. 200, 204, 301, 401).", Placeholder = "200" },
+        },
+    };
+
+    private async Task OnProviderTypeChanged(string typeId)
+    {
+        _providerType = typeId;
+        StatusCheck.ProviderType = typeId;
+        _selectedFields = _providers.FirstOrDefault(p => p.TypeId == typeId)?.Fields ?? new();
+        // #433: switching provider invalidates everything the previous one's guided flow and
+        // dry run established. Bumping the token also fences any in-flight call, so a reply
+        // that was already on the wire cannot land on the new provider's state.
+        // Switching provider makes any outstanding call irrelevant — stop the work, not just
+        // the rendering of its reply.
+        CancelAndDispose(ref _validateCts);
+        CancelAndDispose(ref _testCts);
+        _validateGeneration++;
+        _testGeneration++;
+        _validating = false;
+        _testing = false;
+        _validateState = null;
+        _discoveredModels = new();
+        _modelsDiscovered = false;
+        AiFieldsRevealedManually = false;
+        AiStageRevealed = false;
+        _testResult = null;
+        // Drop config keys that don't belong to the newly-selected provider. The map
+        // accumulates across switches, so a key seeded for a previous type — e.g. http's
+        // "url" — would otherwise linger and trip URL validation on a URL-less push provider
+        // (heartbeat). StatusCheckUrl is the backing store for http's "url", so switching
+        // back re-seeds it (no data loss). Then fill in the new provider's defaults.
+        var allowed = _selectedFields.Select(f => f.Key).ToHashSet();
+        foreach (var stale in StatusCheck.ProviderConfig.Keys.Where(k => !allowed.Contains(k)).ToList())
+            StatusCheck.ProviderConfig.Remove(stale);
+        SeedConfigDefaults();
+        // Switching type re-evaluates the ping URL (shown only for heartbeat; a check that
+        // isn't a saved heartbeat yet has no token, so the callout says "save to generate").
+        await LoadHeartbeatUrlAsync();
+    }
+
+    // ---- #320 Phase 2b: heartbeat ping URL ----
+
+    private string BuildPingUrl(string token) => $"{Navigation.BaseUri}{HeartbeatTypeId}/{token}";
+
+    private async Task LoadHeartbeatUrlAsync()
+    {
+        // Only a saved heartbeat check has a token (it's generated on create). A new check,
+        // or one just switched to heartbeat in the form, has none yet → null → "save to
+        // generate". 404 (not a heartbeat check on the server) collapses to the same null.
+        if (_providerType != HeartbeatTypeId || StatusCheck.Id <= 0)
+        {
+            _heartbeatUrl = null;
+            return;
+        }
+        _heartbeatLoading = true;
+        try
+        {
+            var token = await StatusApi.GetHeartbeatTokenAsync(StatusCheck.Id);
+            _heartbeatUrl = string.IsNullOrEmpty(token) ? null : BuildPingUrl(token);
+        }
+        finally
+        {
+            _heartbeatLoading = false;
+        }
+    }
+
+    private async Task RegenerateHeartbeatAsync()
+    {
+        if (StatusCheck.Id <= 0) return;
+        _heartbeatBusy = true;
+        try
+        {
+            var token = await StatusApi.RegenerateHeartbeatTokenAsync(StatusCheck.Id);
+            if (!string.IsNullOrEmpty(token)) _heartbeatUrl = BuildPingUrl(token);
+        }
+        finally
+        {
+            _heartbeatBusy = false;
+        }
+    }
+
+    private void SeedConfigDefaults()
+    {
+        foreach (var f in _selectedFields)
+        {
+            if (StatusCheck.ProviderConfig.ContainsKey(f.Key)) continue;
+            // For http, fall back to the legacy VM fields so an existing/new check
+            // pre-fills correctly; other keys start blank.
+            StatusCheck.ProviderConfig[f.Key] = f.Key switch
+            {
+                "url" => StatusCheck.StatusCheckUrl ?? string.Empty,
+                "expectedStatusCode" => StatusCheck.ExpectedStatusCode.ToString(),
+                _ => string.Empty,
+            };
+        }
+    }
+
+    private string GetCfg(string key) => StatusCheck.ProviderConfig.TryGetValue(key, out var v) ? v : string.Empty;
+
+    private void SetCfg(string key, string? val)
+    {
+        bool changed = GetCfg(key) != (val ?? string.Empty);
+        StatusCheck.ProviderConfig[key] = val ?? string.Empty;
+        if (changed) InvalidateResultsFor(key);
+        // Mirror the http keys into the legacy VM props so client-side validation and
+        // byte-for-byte parity hold (the server treats ProviderConfig as authoritative).
+        if (key == "url") StatusCheck.StatusCheckUrl = val ?? string.Empty;
+        if (key == "expectedStatusCode" && int.TryParse(val, out var code)) StatusCheck.ExpectedStatusCode = code;
+    }
+
+    private bool GetCfgBool(string key) => GetCfg(key).Equals("true", StringComparison.OrdinalIgnoreCase);
+
+    private void SetCfgBool(string key, bool val) => SetCfg(key, val ? "true" : "false");
+
+    /// <summary>
+    /// #433: a COMPLETED result describes the config it was obtained for, so an edit to that
+    /// config makes it a lie. The in-flight fences only reject replies that land late; they do
+    /// nothing about a verdict already on screen. Without this, changing the base URL after a
+    /// green dry run leaves "UP" sitting under a form that now points somewhere else — and the
+    /// model picker keeps offering endpoint A's ids for saving against endpoint B.
+    /// <para>The dry run is issued against the whole config, so ANY field edit retires it.
+    /// Discovery is issued against the endpoint identity only, so its verdict and model list
+    /// are retired by a base-URL or key edit — not by, say, editing the canary prompt.</para>
+    /// </summary>
+    private void InvalidateResultsFor(string key)
+    {
+        // Any probe-relevant field invalidates the dry-run verdict — and the request that would
+        // have produced it. Clearing the result without cancelling left the call running and,
+        // because _testing guards re-entry, left the button busy and the REPLACEMENT config
+        // untestable for the whole backstop period.
+        _testResult = null;
+        CancelSupersededOperation(ref _testCts, ref _testing, ref _testGeneration);
+
+        if (IsAiProvider && (key == AiBaseUrlKey || key == AiApiKeyKey))
+        {
+            // The endpoint itself changed: what we learned about the previous one no longer
+            // applies. The model the operator typed is kept — the same id may well exist on the
+            // new endpoint — but it goes back to free text, since we no longer have a verified
+            // list to pick from. The revealed fields STAY revealed (see AiStageRevealed): an
+            // edit must not collapse the form and hide values already typed.
+            _validateState = null;
+            _discoveredModels = new();
+            _modelsDiscovered = false;
+            CancelSupersededOperation(ref _validateCts, ref _validating, ref _validateGeneration);
+        }
+    }
+
+    /// <summary>
+    /// Abandon an in-flight operation whose inputs just changed: cancel it, fence its reply, and
+    /// release its busy flag <b>here</b> rather than waiting for the call to unwind.
+    ///
+    /// <para>The busy flag has to be cleared at this point because the abandoned call's own
+    /// <c>finally</c> will not do it — bumping the generation is exactly what makes its guard
+    /// fail — and a provider that ignores cancellation may not return for the full backstop.
+    /// Leaving the flag set would block the operator from validating or testing the
+    /// configuration they just typed, which is the whole point of having edited it.</para>
+    ///
+    /// <para>The generation bump stays alongside cancellation because cancellation is
+    /// cooperative: a call that never observes its token must still be stopped from rendering
+    /// a reply about the previous config.</para>
+    /// </summary>
+    private static void CancelSupersededOperation(ref CancellationTokenSource? cts, ref bool busy, ref int generation)
+    {
+        if (cts is null) return;      // nothing in flight; leave the counters alone
+        CancelAndDispose(ref cts);
+        generation++;
+        busy = false;
+    }
+
+    // #312 follow-up: the schema-driven provider config fields are validated CLIENT-SIDE
+    // against their schema, so a missing/invalid value (e.g. an AI check with no baseUrl,
+    // model, prompt, or expected-content) is caught inline BEFORE submit — instead of
+    // sailing past _form.Validate() and coming back as a server 422 after the round-trip,
+    // with the check unsaved. This validation participates in MudForm.Validate() because
+    // every MudTextField/MudSelect below registers with the enclosing MudForm.
+    private Func<string, string?> CfgValidation(ProviderConfigFieldViewModel field) => value =>
+    {
+        var blank = string.IsNullOrWhiteSpace(value);
+
+        // Secrets on an EXISTING check: blank means "keep the stored value" (the value is
+        // write-only, never echoed back), so don't flag a required-but-blank secret when
+        // editing. On a NEW check a required secret must be provided.
+        var secretKeepBlank = field.Kind == "secret" && StatusCheck.Id > 0;
+
+        if (field.Required && blank && !secretKeepBlank)
+        {
+            return $"{field.Label} is required.";
+        }
+
+        if (field.Kind == "number" && !blank
+            && !double.TryParse(value, System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture, out _))
+        {
+            return $"{field.Label} must be a number.";
+        }
+
+        return null;
+    };
+
+    private static string SecretPlaceholder(ProviderConfigFieldViewModel field) =>
+        field.Required ? "required" : "leave blank to keep";
+
+    private void ToggleWebhook(long id)
+    {
+        if (!_webhookIds.Remove(id)) _webhookIds.Add(id);
+    }
+
+    private void ToggleProfile(long id)
+    {
+        if (!_profileIds.Remove(id)) _profileIds.Add(id);
+    }
+
+    // ---- quick-create ("+ New…"): open the respective edit dialog inline; on
+    // save the picker refreshes and auto-selects the new entity. ----
+
+    private async Task NewSlaAsync()
+    {
+        var parameters = new DialogParameters<SlaEditDialog> { { x => x.Sla, new SlaViewModel() } };
+        var dialog = await DialogService.ShowAsync<SlaEditDialog>("Add SLA", parameters, QuickCreateOptions);
+        if ((await dialog.Result) is { Canceled: false, Data: SlaViewModel saved })
+        {
+            _slas = await StatusApi.GetSlasAsync();
+            _slaId = saved.Id;
+            StateHasChanged();
+        }
+    }
+
+    private async Task NewWebhookAsync()
+    {
+        var parameters = new DialogParameters<WebhookEditDialog> { { x => x.Webhook, new WebhookViewModel() } };
+        var dialog = await DialogService.ShowAsync<WebhookEditDialog>("Add webhook", parameters, QuickCreateOptions);
+        if ((await dialog.Result) is { Canceled: false, Data: WebhookViewModel saved })
+        {
+            _webhooks = await StatusApi.GetWebhooksAsync();
+            _webhookIds.Add(saved.Id);
+            StateHasChanged();
+        }
+    }
+
+    private async Task NewProfileAsync()
+    {
+        var parameters = new DialogParameters<AlertProfileEditDialog> { { x => x.Profile, new AlertProfileViewModel() } };
+        var dialog = await DialogService.ShowAsync<AlertProfileEditDialog>("Add alert profile", parameters, QuickCreateOptions);
+        if ((await dialog.Result) is { Canceled: false, Data: AlertProfileViewModel saved })
+        {
+            _profiles = await StatusApi.GetAlertProfilesAsync();
+            _profileIds.Add(saved.Id);
+            StateHasChanged();
+        }
+    }
+
+    private static DialogOptions QuickCreateOptions => new() { CloseOnEscapeKey = true, CloseButton = true };
+
+    // ---- save ----
+
+    /// <summary>Client-side validation that NAMES the offending section, so the
+    /// operator knows where to scroll in the long dialog. Public + static so
+    /// the bUnit suite can exercise the Monitoring/Notifications branches that
+    /// the clamping numeric fields make unreachable through the UI
+    /// (defense-in-depth against programmatic VM mutation).</summary>
+    public static string? ValidateSections(StatusCheckViewModelBase check)
+    {
+        if (string.IsNullOrWhiteSpace(check.Title))
+            return "Basics: a title is required.";
+        // A URL is required only for providers that declare a "url" config field
+        // (the http pull provider). Push providers (heartbeat) carry no URL, and
+        // providers with their own endpoint field (ai → baseUrl) don't use the
+        // legacy StatusCheckUrl column — so don't demand it of them.
+        // #336: the URL field lives in the Monitoring section now.
+        if (check.ProviderConfig.ContainsKey("url") && string.IsNullOrWhiteSpace(check.StatusCheckUrl))
+            return "Monitoring: a check URL is required.";
+        if (check.IntervalSeconds is < 5 or > 3600)
+            return "Monitoring: the polling interval must be between 5 and 3600 seconds.";
+        if (check.AlertOnFailureThreshold < 0 || check.AlertOnOutageMinutes < 0 || check.AlertThrottleMinutes < 0)
+            return "Alerting: trigger values can't be negative.";
+        return null;
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (_form is null) return;
+        await _form.Validate();
+
+        _validationError = ValidateSections(StatusCheck);
+        if (_validationError is not null || !_form.IsValid) return;
+
+        // The id-array path — NO legacy embedded fields (the API 422s them).
+        StatusCheck.SlaId = _slaId;
+        StatusCheck.WebhookIds = _webhookIds.ToList();
+        StatusCheck.AlertProfileIds = _profileIds.ToList();
+        // #312: the selected provider type + its schema-driven config ride on the VM.
+        StatusCheck.ProviderType = _providerType;
+
+        _submitting = true;
+        try
+        {
+            await StatusApi.UpdateOrAddStatusCheck(StatusCheck);
+            MudDialog.Close(DialogResult.Ok(StatusCheck));
+        }
+        catch (Exception ex)
+        {
+            // Surfaces the API's 422 (unknown ids, rejected legacy payloads).
+            _validationError = $"Save failed: {ex.Message}";
+        }
+        finally
+        {
+            _submitting = false;
+        }
+    }
+
+    private void Cancel()
+    {
+        // Cancel explicitly as well as via Dispose: the operator pressing Cancel is the clearest
+        // possible signal that an in-flight probe is no longer wanted, and it should not wait on
+        // component teardown ordering.
+        CancelAndDispose(ref _validateCts);
+        CancelAndDispose(ref _testCts);
+        MudDialog.Cancel();
+    }
+}

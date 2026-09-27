@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!-- Public marketing landing page (superstatus.superstatus.io) — issue #196.
+       Deliberately minimal: a static server-rendered Blazor app with no auth,
+       no API/DB, and no MudBlazor. The look comes entirely from the shared
+       SuperStatus.Ui.Shared theme (CSS classes), so there are no interactive
+       components and no SignalR circuit. -->
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SuperStatus.ServiceDefaults\SuperStatus.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\SuperStatus.Ui.Shared\SuperStatus.Ui.Shared.csproj" />
+  </ItemGroup>
+
+</Project>

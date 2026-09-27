@@ -1,0 +1,75 @@
+/* Webhook execution-log audit panel (issue #107 Phase 2). */
+
+::deep .wl-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: var(--s-3, 12px);
+}
+::deep .wl-toggle {
+    font-family: var(--font-mono, monospace);
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-3, #6f747d);
+    background: transparent;
+    border: 1px solid var(--line, rgba(255,255,255,0.08));
+    padding: 5px 10px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+::deep .wl-toggle.on {
+    color: var(--status-down, #c02020);
+    border-color: var(--status-down, #c02020);
+}
+::deep .wl-note {
+    color: var(--text-3, #6f747d);
+    font-size: 12px;
+    margin: var(--s-2, 8px) 0 0;
+}
+::deep .wl-table {
+    font-family: var(--font-mono, monospace);
+    font-size: 12px;
+}
+::deep .wl-row {
+    display: grid;
+    /* outcome | check | webhook (#291) | when | code | ms | target */
+    grid-template-columns: 110px 1fr 1fr 110px 48px 56px 2fr;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--line, rgba(255,255,255,0.06));
+}
+::deep .wl-row.wl-h {
+    color: var(--text-3, #6f747d);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+}
+::deep .wl-check { color: var(--text-1, #e8e9ec); }
+::deep .wl-hook { color: var(--text-2, #a7abb3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+::deep .wl-time { color: var(--text-3, #6f747d); }
+::deep .wl-num { font-variant-numeric: tabular-nums; color: var(--text-2, #a7abb3); }
+::deep .wl-url {
+    color: var(--text-2, #a7abb3);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+::deep .wl-err {
+    color: var(--status-down, #c02020);
+    font-size: 11px;
+    padding: 2px 0 6px;
+    opacity: 0.85;
+    word-break: break-word;
+}
+/* Mobile: collapse the dense grid to a stacked-ish layout. */
+@media (max-width: 720px) {
+    ::deep .wl-row { grid-template-columns: 90px 1fr 70px; }
+    ::deep .wl-row > .wl-hook, ::deep .wl-row > .wl-num, ::deep .wl-row > .wl-url { display: none; }
+    ::deep .wl-row.wl-h > span:nth-child(3),
+    ::deep .wl-row.wl-h > span:nth-child(5),
+    ::deep .wl-row.wl-h > span:nth-child(6),
+    ::deep .wl-row.wl-h > span:nth-child(7) { display: none; }
+}

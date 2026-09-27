@@ -1,0 +1,180 @@
+@using SuperStatus.Data.ViewModels
+@using SuperStatus.Web.Components.Hud
+@inject StatusApiClient StatusApi
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+@*
+    AlertProfileListPanel — operator management table for reusable alert
+    delivery profiles (#291 Phase C). Lives at the top of the console's Alerts
+    tab, above the alert log. Add / Edit / Delete; deleting a linked profile is
+    blocked by the API (409) and the confirm lists the
+    linked checks via the shared LinkedDeleteBlockedDialog — unlinking happens
+    from each check's dialog (Phase D), never here.
+*@
+<HudPanel ExtraClass="admin-frame alert-profile-list-frame">
+    <div class="ap-head">
+        <HudCallsign Label="ALERT PROFILES" Value="Delivery bundles" />
+        @if (_profiles is { Count: > 0 })
+        {
+            <button class="btn accent" @onclick="AddAsync">+ Add profile</button>
+        }
+    </div>
+
+    @if (_profiles is null)
+    {
+        <p class="ap-note">Loading…</p>
+    }
+    else if (_profiles.Count == 0)
+    {
+        <div class="ap-empty">
+            <div class="ap-empty-glyph" aria-hidden="true">[ — ]</div>
+            <p class="ap-empty-copy">No alert profiles yet — create one to define who gets notified, then link it from any check.</p>
+            <button class="btn accent" @onclick="AddAsync">+ Add profile</button>
+        </div>
+    }
+    else
+    {
+        <div class="ap-table">
+            <div class="ap-row ap-h">
+                <span>Name</span><span>Email recipients</span><span>Push</span><span>Used by</span><span></span>
+            </div>
+            @foreach (var p in _profiles)
+            {
+                <div class="ap-row">
+                    <span class="ap-name">@p.Name</span>
+                    <span class="ap-recip" title="@RecipientsTitle(p)">
+                        @if (p.UsesSiteDefaultRecipients)
+                        {
+                            <span class="ap-dim">(Email plugin default)</span>
+                            <span class="tag accent ap-flag">EMAIL DEFAULT</span>
+                        }
+                        else if (p.EmailEnabled && !string.IsNullOrWhiteSpace(p.EmailRecipients))
+                        {
+                            @RecipientsDisplay(p)
+                        }
+                        else
+                        {
+                            <span class="ap-dim">—</span>
+                        }
+                    </span>
+                    <span class="ap-push @(p.WebPushEnabled ? "on" : "")">@(p.WebPushEnabled ? "✓" : "—")</span>
+                    <span class="ap-used">@p.Usage.UsedByCount @(p.Usage.UsedByCount == 1 ? "check" : "checks")</span>
+                    <span class="ap-actions">
+                        <button type="button" class="ap-link" @onclick="() => EditAsync(p)">Edit</button>
+                        <span class="ap-sep">·</span>
+                        <button type="button" class="ap-link danger" @onclick="() => DeleteAsync(p)">Delete</button>
+                    </span>
+                </div>
+            }
+        </div>
+        <p class="ap-note">
+            Delete is blocked while a profile is linked — same guard as webhooks; the confirm
+            lists the linked checks. "Email plugin default" profiles resolve recipients from
+            Plugins -> Email -> Configure at send time, never a copy.
+        </p>
+    }
+</HudPanel>
+
+@code {
+    private List<AlertProfileViewModel>? _profiles;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync() => _profiles = await StatusApi.GetAlertProfilesAsync();
+
+    // Stored canonical comma-joined; render with the mockup's ", " spacing.
+    private static string RecipientsDisplay(AlertProfileViewModel p)
+        => string.Join(", ", p.EmailRecipients.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+
+    private static string RecipientsTitle(AlertProfileViewModel p)
+        => p.UsesSiteDefaultRecipients ? "(Email plugin default)" : RecipientsDisplay(p);
+
+    private async Task AddAsync()
+    {
+        var vm = new AlertProfileViewModel();
+        var options = new DialogOptions { CloseOnEscapeKey = true, CloseButton = true };
+        var parameters = new DialogParameters<AlertProfileEditDialog> { { x => x.Profile, vm } };
+        var dialog = await DialogService.ShowAsync<AlertProfileEditDialog>("Add alert profile", parameters, options);
+        if ((await dialog.Result) is { Canceled: false }) await LoadAsync();
+    }
+
+    private async Task EditAsync(AlertProfileViewModel profile)
+    {
+        // Edit a copy so a cancelled dialog can't leave half-typed values on the row.
+        var vm = new AlertProfileViewModel
+        {
+            Id = profile.Id,
+            Name = profile.Name,
+            EmailEnabled = profile.EmailEnabled,
+            EmailRecipients = profile.EmailRecipients,
+            UsesSiteDefaultRecipients = profile.UsesSiteDefaultRecipients,
+            WebPushEnabled = profile.WebPushEnabled,
+            CreatedUtc = profile.CreatedUtc,
+            Usage = profile.Usage,
+            // #365: carry the schema-driven channels into the edit copy too — otherwise editing a
+            // profile drops its Slack/Discord/… channels from the dialog and re-saves them disabled.
+            // Deep-copy so a cancelled dialog can't mutate the row.
+            Channels = profile.Channels
+                .Select(c => new AlertProfileChannelViewModel
+                {
+                    ProviderType = c.ProviderType,
+                    IsEnabled = c.IsEnabled,
+                    Config = new Dictionary<string, string>(c.Config),
+                    StoredSecretKeys = new List<string>(c.StoredSecretKeys),
+                })
+                .ToList(),
+        };
+        var options = new DialogOptions { CloseOnEscapeKey = true, CloseButton = true };
+        var parameters = new DialogParameters<AlertProfileEditDialog> { { x => x.Profile, vm } };
+        var dialog = await DialogService.ShowAsync<AlertProfileEditDialog>(profile.Name, parameters, options);
+        if ((await dialog.Result) is { Canceled: false }) await LoadAsync();
+    }
+
+    private async Task DeleteAsync(AlertProfileViewModel profile)
+    {
+        // Unlinked → the usual destructive confirm before anything is deleted.
+        // Linked → go straight to the API: the DELETE answers 409 with the
+        // authoritative LinkedEntitySummary, rendered by the shared blocked
+        // dialog (whose only action is Cancel — unlink-all is deliberately not
+        // offered).
+        if (profile.Usage.UsedByCount == 0)
+        {
+            var parameters = new DialogParameters<HudConfirmDialog>
+            {
+                { x => x.Title, $"Delete {profile.Name}?" },
+                { x => x.Tag, "Delete alert profile" },
+                { x => x.Message, $"This permanently deletes the alert profile \"{profile.Name}\". It is not linked to any checks. This cannot be undone." },
+                { x => x.ConfirmText, "Delete" },
+                { x => x.Danger, true },
+            };
+            var options = new DialogOptions { CloseOnEscapeKey = true, CloseButton = true };
+            var dialog = await DialogService.ShowAsync<HudConfirmDialog>($"Delete {profile.Name}", parameters, options);
+            if ((await dialog.Result) is not { Canceled: false, Data: true }) return;
+        }
+
+        try
+        {
+            var result = await StatusApi.DeleteAlertProfileAsync(profile.Id);
+            if (result.BlockedBy is not null)
+            {
+                var parameters = new DialogParameters<LinkedDeleteBlockedDialog>
+                {
+                    { x => x.EntityLabel, "alert profile" },
+                    { x => x.Name, profile.Name },
+                    { x => x.Usage, result.BlockedBy },
+                };
+                var options = new DialogOptions { CloseOnEscapeKey = true, CloseButton = true };
+                await DialogService.ShowAsync<LinkedDeleteBlockedDialog>($"Delete blocked", parameters, options);
+                return;
+            }
+            Snackbar.Add(result.Deleted ? $"Deleted alert profile '{profile.Name}'." : $"Alert profile '{profile.Name}' no longer exists.",
+                result.Deleted ? Severity.Normal : Severity.Warning);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Delete failed for '{profile.Name}': {ex.Message}", Severity.Error);
+        }
+    }
+}

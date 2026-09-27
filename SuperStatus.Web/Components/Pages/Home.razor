@@ -1,0 +1,53 @@
+@page "/"
+@layout Layout.PublicLayout
+@using SuperStatus.Web.Components.StatusCheckOverview
+@using SuperStatus.Web.Components.IncidentOverview
+@inject SettingsApiClient SettingsApi
+@inject NavigationManager Nav
+
+<PageTitle>SuperStatus — Dashboard</PageTitle>
+
+@if (_ready)
+{
+    @* #95 Phase 3a: tactical hero summary on top of the service list. #159 Phase 2:
+       this is the read-only public status view — check/incident create + edit moved
+       to the operator console (/admin), reachable from the nav. No operator
+       affordances render here for anyone. The .home wrapper owns the uniform
+       vertical rhythm between the hero and each section (see Home.razor.css). *@
+    <div class="home">
+        <HudDashboardHero />
+
+        <div class="home-section">
+            <div class="section-head">
+                <HudCallsign Label="SERVICES" Value="Live status" />
+            </div>
+            <StatusCheckList />
+        </div>
+
+        <div class="home-section">
+            <div class="section-head">
+                <HudCallsign Label="INCIDENTS" Value="Last 30 days" />
+            </div>
+            <IncidentList />
+        </div>
+    </div>
+}
+
+@code {
+    private bool _ready;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // #184: a fresh (not-onboarded) install funnels straight into first-run
+        // setup instead of showing an empty public dashboard. Only redirect on a
+        // CONFIRMED not-onboarded response — a failed /settings fetch must not
+        // bounce public visitors to login, so render the dashboard in that case.
+        var settings = await SettingsApi.TryGetSettingsAsync();
+        if (settings is { OnboardedUtc: null })
+        {
+            Nav.NavigateTo("/admin"); // → auth gate → IdP setup → wizard
+            return;
+        }
+        _ready = true;
+    }
+}

@@ -1,0 +1,50 @@
+namespace SuperStatus.Services.Http
+{
+    /// <summary>
+    /// Issue #77. Named <see cref="System.Net.Http.IHttpClientFactory"/> client
+    /// identities for the status-check pipeline. Centralised so the registration
+    /// (<c>AddStatusCheckHttpClients</c>) and the consumers
+    /// (<c>StatusCheckService</c>) can never drift on a magic string.
+    ///
+    /// Both clients are created from the factory so they share a pooled
+    /// <c>SocketsHttpHandler</c> (no socket exhaustion under fan-out) and are
+    /// visible to <c>AddHttpClientInstrumentation</c> in OTel — neither was true
+    /// of the raw <c>new HttpClient()</c> calls this replaces.
+    /// </summary>
+    public static class StatusCheckHttpClients
+    {
+        /// <summary>Outbound client for probing a monitored endpoint.</summary>
+        public const string StatusCheck = "status-check";
+
+        /// <summary>Outbound client for firing on-error webhooks.</summary>
+        public const string Webhook = "status-webhook";
+
+        /// <summary>Issue #168: outbound client for the OpenAI-compatible incident
+        /// draft endpoint. Unlike the two above it has NO fixed client timeout —
+        /// the draft service applies the operator-configured per-request timeout
+        /// (AiTimeoutSeconds) via a linked CancellationTokenSource instead.</summary>
+        public const string AiIncident = "ai-incident";
+
+        /// <summary>#317: outbound client for the AI/LLM canary check provider. No fixed
+        /// client timeout — the engine bounds each probe via the provider's ProbeTimeout
+        /// (the token passed to ProbeAsync), so an LLM canary can run longer than the 10s
+        /// HTTP ceiling without a second, conflicting client-level timeout.</summary>
+        public const string AiCheck = "ai-check";
+
+        /// <summary>#433: outbound client for AI model discovery (<c>GET {baseUrl}/models</c>).
+        /// Separate from <see cref="AiCheck"/> because it is an <b>interactive</b> call with an
+        /// operator waiting on it, so it takes the short 10 s ceiling rather than the canary's
+        /// deliberately generous probe budget.</summary>
+        public const string AiModels = "ai-models";
+
+        /// <summary>
+        /// Uniform request ceiling for both clients. A single hung target must
+        /// not keep the surrounding scope's DbContext/Npgsql connection pinned
+        /// for the framework default of 100 s — that is the exhaustion #71
+        /// fixed and #78 must not reintroduce. A timeout surfaces as
+        /// <see cref="System.Threading.Tasks.TaskCanceledException"/>, which the
+        /// callers classify as unreachable/timeout exactly as before.
+        /// </summary>
+        public const int TimeoutSeconds = 10;
+    }
+}

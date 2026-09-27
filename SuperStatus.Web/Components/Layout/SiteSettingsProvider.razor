@@ -1,0 +1,86 @@
+@*
+    SiteSettingsProvider — issue #167 Phase 2.
+
+    Loads the operator-editable branding (title / logo / accent) from the
+    /settings API once per render and cascades it to the shell (HeaderBar reads
+    the title + logo). It also applies the chosen accent by overriding the HUD
+    theme custom properties (--accent / --accent-soft / --accent-glow / --accent-bg)
+    on :root, so the recolor reaches the whole tree — including FooterBar, which
+    sits outside the .app grid, and the atmospheric background wash on <body>
+    (--accent-bg), which then tracks the accent instead of a fixed green (#324).
+
+    The accent is re-emitted only when it is a valid #rrggbb (the API already
+    normalizes it to that or the default); an invalid/empty value emits nothing
+    and the theme defaults from hud-theme.css apply. Because the value is
+    constrained to hex characters, interpolating it into the <style> block
+    cannot break out of the CSS context. Load failures degrade to defaults — the
+    shell must never crash the circuit over branding.
+*@
+@using System.Text.RegularExpressions
+@using SuperStatus.Data.ViewModels
+@inject SettingsApiClient SettingsApi
+
+@if (_accentCss is not null)
+{
+    <style>@_accentCss</style>
+}
+
+<CascadingValue Value="_settings" Name="SiteSettings">
+    @* #286: cascade a refresh hook so descendants (the setup wizard) can apply
+       branding live — re-reads /settings and re-emits the accent without a reload. *@
+    <CascadingValue Value="_refresh" Name="RefreshSiteSettings">
+        @ChildContent
+    </CascadingValue>
+</CascadingValue>
+
+@code {
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private static readonly Regex HexColor = new("^#[0-9a-fA-F]{6}$", RegexOptions.Compiled);
+
+    private SiteSettingsViewModel _settings = new();
+    private string? _accentCss;
+    private Func<Task> _refresh = default!;
+
+    protected override void OnInitialized() => _refresh = RefreshAsync;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _settings = await SettingsApi.GetSettingsAsync();
+        _accentCss = BuildAccentCss(_settings.AccentColor);
+    }
+
+    /// <summary>#286: re-read branding and re-cascade it (new object reference =
+    /// consumers re-render), so a wizard "Next" reflects logo/title/subtitle/accent
+    /// in the live header immediately. Branding failures must never crash the shell.</summary>
+    private async Task RefreshAsync()
+    {
+        try
+        {
+            _settings = await SettingsApi.GetSettingsAsync();
+            _accentCss = BuildAccentCss(_settings.AccentColor);
+            StateHasChanged();
+        }
+        catch
+        {
+            // A transient /settings read failure must not break the wizard or
+            // blank the header — keep the previously cascaded settings.
+        }
+    }
+
+    /// <summary>Override --accent and its soft/glow/bg rgba derivations on :root.
+    /// --accent-bg (the atmospheric body wash) uses the same 0.06 alpha as the
+    /// hud-theme.css default, so a default accent reproduces today's green wash.
+    /// Returns null for a non-#rrggbb value so the theme default stands.</summary>
+    private static string? BuildAccentCss(string? accent)
+    {
+        accent = (accent ?? string.Empty).Trim();
+        if (!HexColor.IsMatch(accent)) return null;
+
+        int r = Convert.ToInt32(accent.Substring(1, 2), 16);
+        int g = Convert.ToInt32(accent.Substring(3, 2), 16);
+        int b = Convert.ToInt32(accent.Substring(5, 2), 16);
+
+        return $":root{{--accent:{accent};--accent-soft:rgba({r},{g},{b},0.55);--accent-glow:rgba({r},{g},{b},0.20);--accent-bg:rgba({r},{g},{b},0.06);}}";
+    }
+}

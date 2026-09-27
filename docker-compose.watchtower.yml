@@ -1,0 +1,55 @@
+name: superstatus
+
+# SuperStatus update engine — part of the DEFAULT self-host stack (issue #334).
+#
+# install.sh records this file in .env as
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.watchtower.yml
+# so the day-2 commands (`docker compose pull && docker compose up -d`) pick it up
+# with no -f flags. Opt out with `install.sh --no-updater` (or
+# SUPERSTATUS_UPDATE_ENGINE=none): the installer then drops this file from
+# COMPOSE_FILE, the Watchtower service is never created, nothing mounts the Docker
+# socket, and the console falls back to the guided upgrade command.
+#
+# ── Security boundary ─────────────────────────────────────────────────────────
+# Watchtower is the ONLY container that mounts /var/run/docker.sock, which is
+# root-equivalent access to the Docker host. The web/api containers never touch
+# it — they ask Watchtower to pull + recreate over its authenticated http-api
+# (http://watchtower:8080/v1/update, shared bearer token SUPERSTATUS_UPDATE_TOKEN
+# from .env). The http-api port is reachable only on the internal compose network;
+# it is NOT published to the host.
+#
+# ── One scheduler, and it lives in the app ────────────────────────────────────
+# Watchtower runs as a pure on-demand executor: WATCHTOWER_HTTP_API_UPDATE with no
+# WATCHTOWER_SCHEDULE and no periodic polls. The operator sets the auto-update
+# toggle + daily UTC time in the admin console; it is persisted in SiteSettings and
+# AutoUpdateWorker fires the trigger. If Watchtower also polled, it would apply
+# updates behind the console's back — "auto-update off" has to mean off.
+
+services:
+  api:
+    environment:
+      SUPERSTATUS_UPDATE_TRIGGER_URL: http://watchtower:8080/v1/update
+      SUPERSTATUS_UPDATE_TOKEN: ${SUPERSTATUS_UPDATE_TOKEN:?set SUPERSTATUS_UPDATE_TOKEN in .env (re-run install.sh)}
+
+  watchtower:
+    image: containrrr/watchtower:latest
+    restart: unless-stopped
+    environment:
+      WATCHTOWER_CLEANUP: "true"
+      WATCHTOWER_LABEL_ENABLE: "true"
+      WATCHTOWER_NO_STARTUP_MESSAGE: "true"
+      WATCHTOWER_SCOPE: "superstatus"
+      # On-demand only. WATCHTOWER_HTTP_API_UPDATE suppresses the periodic poll
+      # loop unless WATCHTOWER_HTTP_API_PERIODIC_POLLS is also set — deliberately
+      # absent here, as is WATCHTOWER_SCHEDULE.
+      WATCHTOWER_HTTP_API_UPDATE: "true"
+      WATCHTOWER_HTTP_API_TOKEN: ${SUPERSTATUS_UPDATE_TOKEN:?set SUPERSTATUS_UPDATE_TOKEN in .env (re-run install.sh)}
+      TZ: "${TZ:-UTC}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    # Must share a network with `api`, which reaches the http-api by service name at
+    # http://watchtower:8080. Without this, Compose puts watchtower on the implicit
+    # `default` network, api stays on `internal`, and the trigger fails DNS resolution
+    # ("Couldn't reach the updater") — #380. Still no published port: the http-api is
+    # reachable only from inside this network.
+    networks: [internal]

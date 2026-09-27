@@ -1,0 +1,51 @@
+@*
+    ThemeProvider — drives MudBlazor's dark mode from the viewer theme (#177).
+
+    The HUD palette flips on the data-theme attribute (hud-theme.css); this keeps
+    MudBlazor surfaces (dialogs / snackbars / inputs) in step by mirroring the
+    effective light/dark into MudThemeProvider. hud-theme.js calls back here
+    (OnEffectiveThemeChanged) when the mode is cycled or the OS preference
+    changes in system mode.
+*@
+@implements IDisposable
+@inject IJSRuntime JS
+
+<MudThemeProvider @ref="_mudThemeProvider" IsDarkMode="@_isDarkMode" />
+
+@code {
+    private bool _isDarkMode = true; // dark is the default HUD theme
+    private MudThemeProvider? _mudThemeProvider;
+    private DotNetObjectReference<ThemeProvider>? _ref;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            _ref = DotNetObjectReference.Create(this);
+            // Register for future changes + get the currently-applied theme.
+            var effective = await JS.InvokeAsync<string>("hudTheme.init", _ref);
+            ApplyEffective(effective);
+        }
+        catch (JSException) { /* JS not ready — keep the dark default */ }
+        catch (InvalidOperationException) { /* prerender / no circuit */ }
+    }
+
+    /// <summary>Invoked from hud-theme.js when the effective theme changes.</summary>
+    [JSInvokable]
+    public Task OnEffectiveThemeChanged(string effective)
+    {
+        ApplyEffective(effective);
+        return Task.CompletedTask;
+    }
+
+    private void ApplyEffective(string? effective)
+    {
+        var dark = !string.Equals(effective, "light", StringComparison.OrdinalIgnoreCase);
+        if (dark == _isDarkMode) return;
+        _isDarkMode = dark;
+        StateHasChanged();
+    }
+
+    public void Dispose() => _ref?.Dispose();
+}

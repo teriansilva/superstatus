@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@(ViewData["Title"] ?? "Single Sign-on") - SuperStatus</title>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="~/css/site.css" />
+    @* Issue #151 Phase 2: tactical-HUD skin — loaded AFTER Bootstrap so the tokens
+       win. Shared with SuperStatus.Web for palette parity; scoped to body.hud-auth.
+       Mirrors Pages/Shared/_Layout.cshtml so the MVC (OIDC consent / logout) and
+       Razor Pages (login / setup) surfaces render the same shell. *@
+    <link rel="stylesheet" href="~/css/hud-theme.css" />
+    <link rel="stylesheet" href="~/css/hud-identity.css" />
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body class="hud-auth">
+    <header class="hud-auth-topbar">
+        <a class="brand" asp-area="" asp-controller="Home" asp-action="Index">
+            <span class="logo" aria-hidden="true"></span>
+            <span class="name">SUPER<em>STATUS</em></span>
+        </a>
+        <span class="tag accent"><span class="led up"></span>Secure<span class="sep">//</span>Access</span>
+    </header>
+
+    <main role="main" class="hud-auth-main">
+        @RenderBody()
+    </main>
+
+    <footer class="hud-auth-footer">
+        Unclassified // Internal use &nbsp;·&nbsp; SuperStatus identity &nbsp;·&nbsp; <a asp-area="" asp-controller="Home" asp-action="Privacy">Privacy</a>
+    </footer>
+
+    <script src="~/lib/jquery/dist/jquery.min.js"></script>
+    <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="~/js/site.js" asp-append-version="true"></script>
+    @await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>

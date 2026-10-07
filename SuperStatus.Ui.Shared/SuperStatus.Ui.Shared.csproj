@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <!-- Shared visual identity for SuperStatus front-ends. The single source of
+       truth for the tactical-HUD design system (docs/design-system.md): the
+       token layer + MudBlazor/Fluent remap (hud-theme.css), the runtime theme
+       switch (js/hud-theme.js), and the brand favicon. Consumed by
+       SuperStatus.Web and SuperStatus.Landing as _content/SuperStatus.Ui.Shared/*
+       so the two front-ends can't drift. Assets-only today; presentational
+       primitives can move here later if a second app needs them. -->
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <SupportedPlatform Include="browser" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,329 @@
+@using SuperStatus.Data.ViewModels
+@inject StatusApiClient StatusApi
+@inject ISnackbar Snackbar
+
+@*
+    AlertProfileEditDialog — add/edit one reusable alert delivery profile
+    (#291 Phase C). Mirrors WebhookEditDialog (hud-dialog skin, MudForm
+    validation, Save via the API client). Linked checks are shown read-only:
+    linking/unlinking happens from each check's dialog, not here.
+
+    Recipients vs the Email plugin default are mutually exclusive: turning the
+    default-recipient toggle on disables AND clears the recipients field
+    (recipients come from Plugins -> Email -> Configure at send time, never a
+    copy). Email on + no recipients + no default can never deliver — blocked
+    client-side with a visible
+    message, mirroring the API's 422 rule (which is surfaced via Snackbar if
+    it slips through anyway).
+*@
+<MudDialog Class="hud-dialog">
+    <TitleContent>
+        <div class="hud-dialog-head">
+            <span class="tag accent"><span class="led up"></span>@(Profile.Id > 0 ? "EDIT ALERT PROFILE" : "ADD ALERT PROFILE")</span>
+            <span class="hud-dialog-name">@(string.IsNullOrWhiteSpace(Profile.Name) ? "New alert profile" : Profile.Name)</span>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        <MudForm @ref="_form">
+            <MudGrid>
+                <MudItem xs="12">
+                    <MudTextField T="string"
+                                  @bind-Value="Profile.Name"
+                                  Label="Name"
+                                  For="@(() => Profile.Name)"
+                                  Required="true"
+                                  RequiredError="Name is required." />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudCheckBox T="bool" @bind-Value="EmailEnabled" Class="ap-email" Color="Color.Primary" Label="Email" />
+                </MudItem>
+                @if (Profile.EmailEnabled)
+                {
+                    <MudItem xs="12">
+                        <MudTextField T="string"
+                                      @bind-Value="Profile.EmailRecipients"
+                                      Class="ap-recipients"
+                                      Label="Recipients"
+                                      Disabled="@Profile.UsesSiteDefaultRecipients"
+                                      HelperText="Comma/space-separated."
+                                      Placeholder="ops@example.com, noc@example.com" />
+                    </MudItem>
+                    <MudItem xs="12">
+                        <MudCheckBox T="bool" @bind-Value="UsesSiteDefaultRecipients" Class="ap-sitedefault" Color="Color.Primary" Label="Use Email plugin default recipients" />
+                        <p class="hud-dialog-helper">On: recipients come from Plugins -> Email -> Configure and the field above is disabled. Off + empty recipients = validation error, never a silent fallback.</p>
+                    </MudItem>
+                }
+                <MudItem xs="12">
+                    <MudCheckBox T="bool" @bind-Value="Profile.WebPushEnabled" Class="ap-push" Color="Color.Primary" Label="Web push (all subscribed devices)" />
+                </MudItem>
+
+                @* #343 Phase 5: schema-driven channels (webhook / slack / discord / telegram).
+                   Additive alongside the bespoke email/web-push controls above; each channel
+                   renders its provider's ConfigSchema generically. Secret fields are write-only
+                   ("leave blank to keep"). *@
+                @if (_channelProviders.Count > 0)
+                {
+                    <MudItem xs="12">
+                        <p class="hud-dialog-helper">Enable a channel to deliver this profile's alerts through it, then send a test to verify. Secrets are write-only — a stored one is kept if you leave its field blank. Email uses the global SMTP relay under Plugins → Email → Configure.</p>
+                    </MudItem>
+                }
+                @foreach (var prov in _channelProviders)
+                {
+                    var ch = ChannelFor(prov.TypeId);
+                    <MudItem xs="12">
+                        <MudCheckBox T="bool" Value="@ch.IsEnabled" ValueChanged="@(v => SetChannelEnabled(ch, v))"
+                                     Color="Color.Primary" Label="@prov.DisplayName"
+                                     Class="@($"ap-chan ap-chan-{prov.TypeId}")" />
+                    </MudItem>
+                    @if (ch.IsEnabled)
+                    {
+                        @foreach (var field in prov.Fields)
+                        {
+                            <MudItem xs="12" @key="@($"{prov.TypeId}:{field.Key}")">
+                                @switch (field.Kind)
+                                {
+                                    case "secret":
+                                        @* #365: a stored secret shows "leave blank to keep" and isn't required
+                                           (blank preserves it). A brand-new one shows its real placeholder and is
+                                           required — closing the trap where the field said "leave blank" then 422'd. *@
+                                        <MudTextField T="string" Value="@GetCfg(ch, field.Key)" ValueChanged="@(v => SetCfg(ch, field.Key, v))"
+                                                      Label="@field.Label" InputType="InputType.Password"
+                                                      Placeholder="@(SecretStored(ch, field.Key) ? "leave blank to keep" : field.Placeholder)"
+                                                      Required="@(!SecretStored(ch, field.Key) && field.Required)"
+                                                      RequiredError="@($"{field.Label} is required.")"
+                                                      Class="@($"ap-cfg-{prov.TypeId}-{field.Key}")" />
+                                        break;
+                                    case "bool":
+                                        <MudCheckBox T="bool" Value="@GetCfgBool(ch, field.Key)" ValueChanged="@(v => SetCfgBool(ch, field.Key, v))"
+                                                     Color="Color.Primary" Label="@field.Label" Class="@($"ap-cfg-{prov.TypeId}-{field.Key}")" />
+                                        break;
+                                    case "number":
+                                        <MudTextField T="string" Value="@GetCfg(ch, field.Key)" ValueChanged="@(v => SetCfg(ch, field.Key, v))"
+                                                      Label="@field.Label" InputType="InputType.Number"
+                                                      Required="@field.Required" RequiredError="@($"{field.Label} is required.")"
+                                                      Validation="@NumberValidation(field)"
+                                                      Placeholder="@field.Placeholder" Class="@($"ap-cfg-{prov.TypeId}-{field.Key}")" />
+                                        break;
+                                    case "json":
+                                        <MudTextField T="string" Value="@GetCfg(ch, field.Key)" ValueChanged="@(v => SetCfg(ch, field.Key, v))"
+                                                      Label="@field.Label" Lines="7" AutoGrow="true"
+                                                      Required="@field.Required" RequiredError="@($"{field.Label} is required.")"
+                                                      Placeholder="@field.Placeholder" Class="@($"ap-cfg-{prov.TypeId}-{field.Key}")" />
+                                        break;
+                                    case "select":
+                                        <MudSelect T="string" Value="@GetCfg(ch, field.Key)" ValueChanged="@(v => SetCfg(ch, field.Key, v))"
+                                                   Label="@field.Label" Dense="true"
+                                                   Required="@field.Required" RequiredError="@($"{field.Label} is required.")"
+                                                   Class="@($"ap-cfg-{prov.TypeId}-{field.Key}")">
+                                            @foreach (var opt in field.Options)
+                                            {
+                                                <MudSelectItem T="string" Value="@opt.Value">@opt.Label</MudSelectItem>
+                                            }
+                                        </MudSelect>
+                                        break;
+                                    default:
+                                        <MudTextField T="string" Value="@GetCfg(ch, field.Key)" ValueChanged="@(v => SetCfg(ch, field.Key, v))"
+                                                      Label="@field.Label"
+                                                      Required="@field.Required" RequiredError="@($"{field.Label} is required.")"
+                                                      Placeholder="@field.Placeholder" Class="@($"ap-cfg-{prov.TypeId}-{field.Key}")" />
+                                        break;
+                                }
+                                @if (!string.IsNullOrWhiteSpace(field.Help))
+                                {
+                                    <p class="hud-dialog-helper">@field.Help</p>
+                                }
+                            </MudItem>
+                        }
+                        @* #365: real per-channel test send — parity with the Email panel's button.
+                           Uses the values above (a stored secret is reused if left blank); no save needed. *@
+                        @if (prov.SupportsTest)
+                        {
+                            <MudItem xs="12">
+                                <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Secondary"
+                                           Disabled="@(_testingChannel == prov.TypeId)"
+                                           OnClick="@(() => TestChannelAsync(prov, ch))"
+                                           Class="@($"ap-test-{prov.TypeId}")">
+                                    @(_testingChannel == prov.TypeId ? "Sending…" : "Send test")
+                                </MudButton>
+                                <p class="hud-dialog-helper">Delivers one test alert through this channel using the values above — a stored secret is reused if you leave it blank; no save required.</p>
+                            </MudItem>
+                        }
+                    }
+                }
+                @if (_validationError is not null)
+                {
+                    <MudItem xs="12">
+                        <p class="hud-dialog-error">@_validationError</p>
+                    </MudItem>
+                }
+                @if (Profile.Id > 0)
+                {
+                    <MudItem xs="12">
+                        <p class="hud-dialog-linked">Linked checks: @LinkedNames — read-only; link from each check's dialog.</p>
+                    </MudItem>
+                }
+            </MudGrid>
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Variant="Variant.Outlined" Color="Color.Secondary">Cancel</MudButton>
+        <MudButton OnClick="SubmitAsync" Disabled="@_submitting" Color="Color.Primary" Variant="Variant.Filled">
+            @(!_submitting ? "Save" : "Saving...")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public required AlertProfileViewModel Profile { get; set; }
+
+    private MudForm? _form;
+    private bool _submitting;
+    private string? _validationError;
+
+    // #365: the channel whose test send is in flight (null = none), so its button shows
+    // "Sending…" and is disabled without blocking the other channels' buttons.
+    private string? _testingChannel;
+
+    // #343 Phase 5: the schema-driven delivery channels (webhook / slack / discord /
+    // telegram) — those whose provider declares config fields. Email + web push have no
+    // schema and keep their bespoke controls above.
+    private List<NotificationDescriptorViewModel> _channelProviders = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var providers = await StatusApi.GetNotificationProvidersAsync();
+        _channelProviders = providers.Where(p => p.Fields.Count > 0).ToList();
+
+        // Ensure a channel entry exists for each schema-driven provider so the form can bind
+        // it (seed blank/disabled when the profile has never configured that channel).
+        foreach (var prov in _channelProviders)
+        {
+            if (Profile.Channels.All(c => c.ProviderType != prov.TypeId))
+                Profile.Channels.Add(new AlertProfileChannelViewModel { ProviderType = prov.TypeId, IsEnabled = false });
+        }
+    }
+
+    private AlertProfileChannelViewModel ChannelFor(string typeId)
+        => Profile.Channels.First(c => c.ProviderType == typeId);
+
+    private void SetChannelEnabled(AlertProfileChannelViewModel ch, bool value)
+    {
+        ch.IsEnabled = value;
+        _validationError = null;
+    }
+
+    // #389/#385: a `number`-kind config field must hold a parseable number (blank is left to
+    // the Required check). Mirrors StatusCheckEditDialog's number branch so a non-numeric
+    // string is caught inline by MudForm.Validate() instead of reaching the server as a 422.
+    private static Func<string, string?> NumberValidation(ProviderConfigFieldViewModel field) => value =>
+        !string.IsNullOrWhiteSpace(value)
+        && !double.TryParse(value, System.Globalization.NumberStyles.Any,
+            System.Globalization.CultureInfo.InvariantCulture, out _)
+            ? $"{field.Label} must be a number."
+            : null;
+
+    private static string GetCfg(AlertProfileChannelViewModel ch, string key)
+        => ch.Config.TryGetValue(key, out var v) ? v : string.Empty;
+
+    private static void SetCfg(AlertProfileChannelViewModel ch, string key, string? val)
+        => ch.Config[key] = val ?? string.Empty;
+
+    private static bool GetCfgBool(AlertProfileChannelViewModel ch, string key)
+        => GetCfg(ch, key).Equals("true", StringComparison.OrdinalIgnoreCase);
+
+    private static void SetCfgBool(AlertProfileChannelViewModel ch, string key, bool val)
+        => SetCfg(ch, key, val ? "true" : "false");
+
+    // #365: does this channel already have a stored value for this secret field? Drives the
+    // "leave blank to keep" (stored) vs real-placeholder-and-required (new) rendering.
+    private static bool SecretStored(AlertProfileChannelViewModel ch, string key)
+        => ch.StoredSecretKeys.Contains(key);
+
+    // #365: fire a one-off test through this channel using the typed values (a stored secret is
+    // reused server-side if left blank). The API validates and delivers; the result is a
+    // Snackbar. Save is not required — the effective config is built from what's on screen.
+    private async Task TestChannelAsync(NotificationDescriptorViewModel prov, AlertProfileChannelViewModel ch)
+    {
+        if (_testingChannel is not null) return;
+        _testingChannel = prov.TypeId;
+        try
+        {
+            var (ok, message) = await StatusApi.TestNotificationChannelAsync(prov.TypeId, Profile.Id, ch.Config);
+            Snackbar.Add(message, ok ? Severity.Success : Severity.Warning);
+        }
+        finally
+        {
+            _testingChannel = null;
+        }
+    }
+
+    private string LinkedNames => Profile.Usage.LinkedCheckNames.Count > 0
+        ? string.Join(", ", Profile.Usage.LinkedCheckNames)
+        : "none";
+
+    private bool EmailEnabled
+    {
+        get => Profile.EmailEnabled;
+        set
+        {
+            Profile.EmailEnabled = value;
+            _validationError = null;
+        }
+    }
+
+    // Mutually exclusive with explicit recipients: turning the toggle on
+    // clears the field (it's also disabled while on) — recipients resolve
+    // from the Email plugin default at send time, never a stored copy.
+    private bool UsesSiteDefaultRecipients
+    {
+        get => Profile.UsesSiteDefaultRecipients;
+        set
+        {
+            Profile.UsesSiteDefaultRecipients = value;
+            if (value) Profile.EmailRecipients = string.Empty;
+            _validationError = null;
+        }
+    }
+
+    // Same emptiness rule the API's 422 uses (comma/space/semicolon separated).
+    private static bool HasRecipients(string? raw)
+        => !string.IsNullOrWhiteSpace(raw)
+           && raw.Split(new[] { ',', ';', ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).Length > 0;
+
+    private async Task SubmitAsync()
+    {
+        if (_form is null) return;
+        await _form.Validate();
+        if (!_form.IsValid) return;
+
+        // Mirrors LinkedTargetsAdminApi.ValidateAlertProfile — email on with
+        // nowhere to deliver is the one invalid combination.
+        if (Profile.EmailEnabled && !Profile.UsesSiteDefaultRecipients && !HasRecipients(Profile.EmailRecipients))
+        {
+            _validationError = "Email is enabled but the profile has no recipients — add recipients or turn on Email plugin default recipients.";
+            return;
+        }
+        _validationError = null;
+
+        _submitting = true;
+        try
+        {
+            // Close with the API's echo — it carries the assigned Id, so the
+            // check dialog's quick-create can auto-select the new profile (#291 D).
+            var saved = await StatusApi.SaveAlertProfileAsync(Profile);
+            MudDialog.Close(DialogResult.Ok(saved));
+        }
+        catch (Exception ex)
+        {
+            // Includes the API's 422 message if the rule slips past the client check.
+            Snackbar.Add($"Could not save alert profile: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _submitting = false;
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+}

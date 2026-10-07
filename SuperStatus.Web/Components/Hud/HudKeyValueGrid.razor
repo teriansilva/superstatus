@@ -1,0 +1,11 @@
+@*
+    HudKeyValueGrid — convenience container that wraps a set of
+    HudKeyValue rows in the required `.kv` two-column grid.
+*@
+<div class="kv">
+    @ChildContent
+</div>
+
+@code {
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+}

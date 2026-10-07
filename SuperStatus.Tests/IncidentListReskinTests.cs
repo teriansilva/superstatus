@@ -1,0 +1,118 @@
+using System.Net;
+using System.Text;
+using Bunit;
+using Microsoft.Extensions.DependencyInjection;
+using MudBlazor.Services;
+using SuperStatus.Web;
+using SuperStatus.Web.Components.IncidentOverview;
+using BunitTestContext = Bunit.TestContext;
+
+namespace SuperStatus.Tests;
+
+/// <summary>
+/// Issue #95 Phase 3b — IncidentList tactical reskin. Renders against a
+/// stub /incidents response and asserts the HUD vocabulary (.incident,
+/// .incident-day, open/resolved tag + dim) without a live API.
+/// </summary>
+[TestClass]
+public class IncidentListReskinTests
+{
+    private static BunitTestContext CtxWith(string json, HttpStatusCode code = HttpStatusCode.OK)
+    {
+        var ctx = new BunitTestContext();
+        var http = new HttpClient(new StubHandler(code, json)) { BaseAddress = new Uri("http://api.test") };
+        ctx.Services.AddSingleton(new IncidentApiClient(http));
+        // IncidentList injects IDialogService (#159 Manage mode); register Mud.
+        ctx.Services.AddMudServices();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        return ctx;
+    }
+
+    // One day with an open incident + a resolved incident.
+    private const string TwoIncidentsJson = """
+    {"2026-05-28T00:00:00":[
+        {"id":1,"title":"AI proxy elevated latency","description":"P95 over budget","resolved":false,"created":"2026-05-28T19:05:00Z","visibleToPublic":true},
+        {"id":2,"title":"Runner pool offline","description":"Quartz pileup","resolved":true,"created":"2026-05-28T09:19:00Z","visibleToPublic":true}
+    ]}
+    """;
+
+    private const string EmptyJson = "{}";
+
+    // #349: Description is markdown now. Includes a bold run, a list, and an
+    // injected <script> to prove render + sanitize on the public log.
+    private const string MarkdownIncidentJson = """
+    {"2026-05-28T00:00:00":[
+        {"id":3,"title":"Payments degraded","description":"**p95** over budget\n\n- rolled back the deploy\n\n<script>alert(1)</script>","resolved":false,"created":"2026-05-28T19:05:00Z","visibleToPublic":true}
+    ]}
+    """;
+
+    [TestMethod]
+    public void RendersDayHeader_OpenAndResolvedIncidents()
+    {
+        using var ctx = CtxWith(TwoIncidentsJson);
+        var cut = ctx.RenderComponent<IncidentList>();
+
+        cut.WaitForAssertion(() => Assert.AreEqual(2, cut.FindAll(".incident").Count));
+        cut.Find(".incident-day");
+        // Open incident → degraded tag; resolved → up tag + .resolved dim.
+        cut.Find(".incident .tag .led.degraded");
+        cut.Find(".incident.resolved .tag .led.up");
+        Assert.IsTrue(cut.Markup.Contains("AI proxy elevated latency"));
+        Assert.IsTrue(cut.Markup.Contains("RESOLVED"));
+        Assert.IsTrue(cut.Markup.Contains("OPEN"));
+    }
+
+    [TestMethod]
+    public void EmptySet_RendersAllClearState()
+    {
+        using var ctx = CtxWith(EmptyJson);
+        var cut = ctx.RenderComponent<IncidentList>();
+
+        cut.WaitForAssertion(() => Assert.IsTrue(cut.Markup.Contains("None in the last 30 days")));
+        Assert.AreEqual(0, cut.FindAll(".incident").Count);
+    }
+
+    // #238: in the operator console the panel must stretch full-width. The
+    // `is-manage` modifier (which drops the auto-centering margins) is applied
+    // only in Manage mode; the public read-only log keeps the centered layout.
+    [TestMethod]
+    public void ManageMode_AppliesFullWidthModifier_PublicDoesNot()
+    {
+        using var ctxManage = CtxWith(EmptyJson);
+        var manage = ctxManage.RenderComponent<IncidentList>(p => p.Add(c => c.Manage, true));
+        manage.WaitForAssertion(() => Assert.IsNotNull(manage.Find(".incident-log.is-manage")));
+
+        using var ctxPublic = CtxWith(EmptyJson);
+        var pub = ctxPublic.RenderComponent<IncidentList>();
+        pub.WaitForAssertion(() => Assert.IsNotNull(pub.Find(".incident-log")));
+        Assert.AreEqual(0, pub.FindAll(".incident-log.is-manage").Count,
+            "public read-only log must NOT get the full-width manage modifier");
+    }
+
+    // #349: the incident log renders Description as sanitized markdown.
+    [TestMethod]
+    public void Description_RendersMarkdown_AndStripsInjectedScript()
+    {
+        using var ctx = CtxWith(MarkdownIncidentJson);
+        var cut = ctx.RenderComponent<IncidentList>();
+
+        cut.WaitForAssertion(() => Assert.AreEqual(1, cut.FindAll(".incident").Count));
+        var md = cut.Find(".incident-md");
+        StringAssert.Contains(md.InnerHtml, "<strong>p95</strong>");
+        StringAssert.Contains(md.InnerHtml, "<li>");
+        Assert.IsFalse(cut.Markup.Contains("<script", StringComparison.OrdinalIgnoreCase),
+            "injected <script> must be sanitized out of the public incident log");
+    }
+
+    private sealed class StubHandler : HttpMessageHandler
+    {
+        private readonly HttpStatusCode _code;
+        private readonly string _json;
+        public StubHandler(HttpStatusCode code, string json) { _code = code; _json = json; }
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            => Task.FromResult(new HttpResponseMessage(_code)
+            {
+                Content = new StringContent(_json, Encoding.UTF8, "application/json")
+            });
+    }
+}

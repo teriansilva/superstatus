@@ -1,0 +1,28 @@
+﻿@using Microsoft.Extensions.Primitives
+@model AuthorizeViewModel
+
+@* Issue #151 Phase 2: HUD consent card. Form action / hidden params / submit
+   names unchanged — chrome only. *@
+<div class="hud-auth-card wide">
+    <div class="hud-auth-head">
+        <span class="tag accent"><span class="led up"></span>Authorize access</span>
+    </div>
+    <p class="hud-auth-intro">
+        Grant <strong>@Model.ApplicationName</strong> access to your account?
+        <br />Scopes requested: <code>@Model.Scope</code>
+    </p>
+
+    <form asp-controller="Authorization" asp-action="Authorize" method="post">
+        @* Flow the request parameters so they can be received by the Accept/Reject actions: *@
+        @foreach (var parameter in Context.Request.HasFormContentType ?
+        (IEnumerable<KeyValuePair<string, StringValues>>)Context.Request.Form : Context.Request.Query)
+        {
+            <input type="hidden" name="@parameter.Key" value="@parameter.Value" />
+        }
+
+        <div class="hud-auth-actions">
+            <input class="btn btn-lg btn-success" name="submit.Accept" type="submit" value="Allow" />
+            <input class="btn btn-lg btn-danger" name="submit.Deny" type="submit" value="Deny" />
+        </div>
+    </form>
+</div>

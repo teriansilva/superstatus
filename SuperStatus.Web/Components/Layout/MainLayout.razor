@@ -1,0 +1,93 @@
+@*
+    MainLayout — tactical-HUD shell (issue #139 / #126 mock adoption).
+
+    Adopts the design-system `.app` grid (defined in hud-theme.css):
+      topbar  (HeaderBar, grid-area: topbar — full width)
+      nav     (NavMenu sidebar, grid-area: nav — collapses on mobile)
+      main    (page body, grid-area: main — wide content)
+    Replaces the prior MudLayout + narrow centered MudContainer. The Mud
+    providers (theme/popover/dialog/snackbar) stay — they don't need
+    MudLayout. FooterBar is the full-width classification strip below.
+*@
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Web
+@inherits LayoutComponentBase
+@inject IJSRuntime JS
+
+<ThemeProvider />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+@* Issue #152 Phase 1: below 900px the .nav sidebar becomes an off-canvas
+   drawer. _navOpen is the single source of truth — HeaderBar's hamburger
+   toggles it, the backdrop + Escape + nav-link clicks close it. The drawer's
+   visual state is driven by the .nav-open class on .app (see hud-theme.css);
+   focus + body-scroll-lock go through hud-drawer.js. *@
+@* Issue #181: CascadingAuthenticationState moved up to Routes.razor (above the
+   AuthorizeRouteView). It still cascades here, so AuthorizeView in HeaderBar /
+   FooterBar keeps working. *@
+@* Issue #167 Phase 2: provides operator branding (title/logo) + applies the
+   chosen accent on :root, wrapping the .app grid (which now includes the
+   footer row). *@
+<SiteSettingsProvider>
+    @* Issue #377: .app-shell lets DemoBanner sit above the topbar without joining the
+       .app grid. DemoBanner renders nothing unless PUBLIC_DEMO=true, so on every real
+       deployment this is a bare wrapper around the same grid as before. *@
+    <div class="app-shell">
+        <DemoBanner />
+        @* FooterBar lives INSIDE .app (the footer grid row) so the shell is exactly
+           one viewport tall when content is short — the footer sticks to the bottom
+           and there's no phantom scroll past empty space. *@
+        <div class="app @(_navOpen ? "nav-open" : null)" @onkeydown="OnAppKeyDown">
+            <HeaderBar NavOpen="_navOpen" OnMenuToggle="ToggleNav" />
+            <NavMenu OnNavigate="CloseNav" />
+            <div class="nav-backdrop" @onclick="CloseNav" aria-hidden="true"></div>
+            <main class="main">
+                @Body
+            </main>
+            <FooterBar />
+        </div>
+    </div>
+</SiteSettingsProvider>
+<div id="blazor-error-ui" class="hud-error-ui">
+    <span class="dot" aria-hidden="true"></span>
+    An unhandled error has occurred.
+    <a href="" class="reload">Reload</a>
+    <a class="dismiss" aria-label="Dismiss error">×</a>
+</div>
+
+@code {
+    private bool _navOpen;
+
+    private async Task ToggleNav()
+    {
+        _navOpen = !_navOpen;
+        await SyncDrawer();
+    }
+
+    private async Task CloseNav()
+    {
+        if (!_navOpen) return;
+        _navOpen = false;
+        await SyncDrawer();
+    }
+
+    private async Task OnAppKeyDown(KeyboardEventArgs e)
+    {
+        if (_navOpen && e.Key == "Escape") await CloseNav();
+    }
+
+    // Lock body scroll while open; move focus into the drawer on open and back
+    // to the toggle on close. Guarded — a pre-circuit call is a harmless no-op.
+    private async Task SyncDrawer()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("hudDrawer.scrollLock", _navOpen);
+            await JS.InvokeVoidAsync(_navOpen ? "hudDrawer.focusFirst" : "hudDrawer.focusToggle");
+        }
+        catch (JSException) { /* JS not ready — visual state still applies via CSS */ }
+        catch (InvalidOperationException) { /* prerender / no circuit */ }
+    }
+}

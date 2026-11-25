@@ -1,0 +1,22 @@
+@*
+    RedirectToLogin — issue #181.
+
+    Rendered by AuthorizeRouteView's <NotAuthorized> when an anonymous user hits
+    an [Authorize] route (e.g. /admin). Bounces to the Web /login endpoint, which
+    issues the OIDC challenge → the IdP. On a fresh install the IdP redirects an
+    unauthenticated, zero-users login to /Account/Setup (the first-run wizard).
+    Without this, the plain RouteView rendered the protected shell for anonymous
+    users instead of challenging.
+*@
+@inject NavigationManager Nav
+
+<p class="admin-note" style="padding:24px">Redirecting to sign in…</p>
+
+@code {
+    protected override void OnInitialized()
+    {
+        // Preserve where the user was headed so the IdP returns them there.
+        var returnUrl = "/" + Nav.ToBaseRelativePath(Nav.Uri);
+        Nav.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(returnUrl)}", forceLoad: true);
+    }
+}

@@ -1,0 +1,72 @@
+/* FooterBar — tactical classification strip (issue #95 Phase 2). */
+
+.hud-footer {
+    grid-area: footer; /* the .app shell's bottom row (hud-theme.css) — sticks to the viewport bottom */
+    /* The admin nav rail is a sticky 100vh-56px column, so its bottom edge would
+       otherwise overrun this footer row. Lift the footer above it so the bottom
+       bar always sits on top of the sidebar at the overlap. */
+    position: relative;
+    z-index: 11;
+    display: flex;
+    align-items: center;
+    gap: var(--s-5, 24px);
+    padding: var(--s-3, 12px) var(--s-5, 24px);
+    background: var(--bg-1);
+    border-top: 1px solid var(--line);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    color: var(--text-3);
+    text-transform: uppercase;
+}
+.classification {
+    color: var(--text-2);
+    font-weight: 600;
+}
+.classification .sep {
+    color: var(--text-3);
+    margin: 0 4px;
+}
+.footer-links {
+    display: inline-flex;
+    gap: var(--s-4, 16px);
+}
+.footer-links a {
+    color: var(--text-2);
+    text-decoration: none;
+}
+.footer-links a:hover {
+    color: var(--accent);
+}
+.footer-links a:focus-visible {
+    outline: 1.5px solid var(--accent);
+    outline-offset: 2px;
+}
+.footer-spacer {
+    flex: 1 1 auto;
+}
+.powered {
+    color: var(--text-3);
+    text-decoration: none;
+}
+.powered:hover { color: var(--text-1); }
+.powered:focus-visible {
+    outline: 1.5px solid var(--accent);
+    outline-offset: 2px;
+}
+
+@media (max-width: 720px) {
+    .classification { font-size: 10px; }
+    .powered { display: none; }
+}
+
+/* #152 Phase 2: at narrow widths the single flex row overran the viewport.
+   Let it wrap and pack left (the spacer that right-aligns links is dropped). */
+@media (max-width: 600px) {
+    .hud-footer {
+        flex-wrap: wrap;
+        gap: var(--s-2, 8px) var(--s-4, 16px);
+        padding: var(--s-3, 12px) var(--s-4, 16px);
+    }
+    .footer-spacer { display: none; }
+}

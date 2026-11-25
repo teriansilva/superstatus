@@ -1,0 +1,87 @@
+@page
+@model LoginModel
+@{
+    ViewData["Title"] = "Log in";
+}
+
+@* Issue #151: HUD auth card. Field markup unchanged (same asp-for / POST /
+   validation); chrome restyled via hud-identity.css. *@
+
+@* Issue #377: the demo credentials panel. Renders ONLY when PUBLIC_DEMO=true, which
+   is set exclusively by docker-compose.demo.yml. On every other deployment
+   Model.IsDemo is false and this block emits nothing at all — DemoLoginPageTests
+   asserts the rendered HTML then contains no trace of the demo email. *@
+@if (Model.IsDemo)
+{
+    <div class="hud-demo-creds">
+        <div class="hud-demo-creds-head">
+            <span class="led" aria-hidden="true"></span>Demo instance
+        </div>
+        <dl>
+            <dt>Email</dt>
+            <dd>@LoginModel.DemoEmail</dd>
+            <dt>Password</dt>
+            <dd>@LoginModel.DemoPassword</dd>
+        </dl>
+        <p class="note">
+            Credentials are <strong>already filled in</strong> — just press Sign in.
+            This instance pulls the latest release and <strong>wipes all data</strong>
+            every hour, next in <span class="hud-demo-countdown" data-demo-countdown>--:--</span>.
+        </p>
+    </div>
+}
+
+<div class="hud-auth-card">
+    <div class="hud-auth-head">
+        <span class="tag accent"><span class="led up"></span>Sign in</span>
+    </div>
+    <section>
+        <form id="account" method="post">
+            <div asp-validation-summary="ModelOnly" class="text-danger" role="alert"></div>
+            <div class="form-floating mb-3 @(Model.IsDemo ? "hud-demo-prefilled" : null)">
+                <input asp-for="Input.Email" class="form-control" autocomplete="username" aria-required="true" placeholder="name@example.com" />
+                <label asp-for="Input.Email" class="form-label">Email</label>
+                @if (Model.IsDemo)
+                {
+                    <span class="hud-demo-flag" aria-hidden="true">demo</span>
+                }
+                <span asp-validation-for="Input.Email" class="text-danger"></span>
+            </div>
+            <div class="form-floating mb-3 @(Model.IsDemo ? "hud-demo-prefilled" : null)">
+                @* The password input is written out twice on purpose. ASP.NET's input tag
+                   helper deliberately never round-trips a DataType.Password value into the
+                   rendered HTML, so `asp-for` alone silently drops the demo prefill and the
+                   visitor still has to type. Only the demo branch carries an explicit
+                   value — and only there is a password in the markup acceptable, because it
+                   is printed in the panel directly above it anyway. *@
+                @if (Model.IsDemo)
+                {
+                    <input asp-for="Input.Password" class="form-control" autocomplete="current-password" aria-required="true" placeholder="password" value="@Model.Input.Password" />
+                }
+                else
+                {
+                    <input asp-for="Input.Password" class="form-control" autocomplete="current-password" aria-required="true" placeholder="password" />
+                }
+                <label asp-for="Input.Password" class="form-label">Password</label>
+                @if (Model.IsDemo)
+                {
+                    <span class="hud-demo-flag" aria-hidden="true">demo</span>
+                }
+                <span asp-validation-for="Input.Password" class="text-danger"></span>
+            </div>
+            <div class="checkbox mb-3">
+                <label asp-for="Input.RememberMe" class="form-label">
+                    <input class="form-check-input" asp-for="Input.RememberMe" />
+                    @Html.DisplayNameFor(m => m.Input.RememberMe)
+                </label>
+            </div>
+            <div>
+                <button id="login-submit" type="submit" class="w-100 btn btn-lg btn-primary">Sign in</button>
+            </div>
+        </form>
+    </section>
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

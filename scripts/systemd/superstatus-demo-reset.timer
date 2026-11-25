@@ -1,0 +1,26 @@
+# Issue #377 — fire the demo reset at the top of every hour.
+#
+# The UI countdown (DemoMode.NextResetUtc) computes "time until the next top of the
+# hour" with no knowledge of this timer. That is the entire coordination mechanism.
+# Changing OnCalendar here silently makes every countdown in the product wrong —
+# change DemoMode.NextResetUtc in the same commit if you ever do.
+#
+# AccuracySec=1s overrides systemd's default 1-minute fuzz, which exists to batch
+# timer wakeups. A minute of jitter would have the banner reading "resetting now"
+# while the instance is still happily serving.
+#
+# No Persistent=true: a missed reset (host was down) should not fire a wipe at boot
+# out of sync with the countdown. The next hour handles it.
+
+[Unit]
+Description=Hourly rebuild of the SuperStatus public demo instance
+Documentation=https://git.superstatus.io/superstatus.io/superstatus/issues/377
+
+[Timer]
+OnCalendar=hourly
+AccuracySec=1s
+Persistent=false
+Unit=superstatus-demo-reset.service
+
+[Install]
+WantedBy=timers.target

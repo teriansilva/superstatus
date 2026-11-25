@@ -1,0 +1,31 @@
+@*
+    HudLed — pulsing status dot (issue #95 Phase 1).
+
+    Status values map to semantic tokens:
+      "up"        → green, pulsing slow
+      "degraded"  → amber, static (warning, not panic)
+      "down"      → red, pulsing fast
+      "unknown"   → neutral grey, static
+      null / ""   → neutral grey, static
+*@
+<span class="led @StatusClass" role="img" aria-label="@AriaLabel"></span>
+
+@code {
+    /// <summary>"up" | "degraded" | "down" | "unknown" | null.</summary>
+    [Parameter] public string? Status { get; set; }
+
+    private string StatusClass => (Status ?? "").ToLowerInvariant() switch
+    {
+        "up" or "degraded" or "down" or "unknown" => Status!.ToLowerInvariant(),
+        _ => ""
+    };
+
+    private string AriaLabel => StatusClass switch
+    {
+        "up"        => "operational",
+        "degraded"  => "degraded",
+        "down"      => "down",
+        "unknown"   => "unknown",
+        _           => "indicator"
+    };
+}

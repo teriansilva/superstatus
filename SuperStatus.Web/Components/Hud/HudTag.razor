@@ -1,0 +1,29 @@
+@*
+    HudTag — small uppercase status chip with optional LED (issue #95 Phase 1).
+
+    Example: <HudTag Tone="accent" Status="up">STATUS//ONLINE</HudTag>
+*@
+<span class="tag @ToneClass">
+    @if (!string.IsNullOrEmpty(Status))
+    {
+        <HudLed Status="@Status" />
+    }
+    @ChildContent
+</span>
+
+@code {
+    /// <summary>Optional LED status; same vocabulary as HudLed.</summary>
+    [Parameter] public string? Status { get; set; }
+
+    /// <summary>"" (default) | "accent" | "critical".</summary>
+    [Parameter] public string Tone { get; set; } = "";
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private string ToneClass => Tone switch
+    {
+        "accent"   => "accent",
+        "critical" => "critical",
+        _          => ""
+    };
+}

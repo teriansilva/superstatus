@@ -1,0 +1,66 @@
+@*
+    Error — tactical-HUD error surface (issue #95 Phase 2).
+
+    Uses HudPanel with the critical accent (DESIGN.md reserves this for
+    active down / open-incident state — a hard error in the running app
+    qualifies). Includes the empty-state capture acceptance check per
+    Hermes review on #95.
+*@
+@page "/Error"
+@using System.Diagnostics
+
+<PageTitle>FAULT — SuperStatus</PageTitle>
+
+<HudPanel Accent="critical" class="error-frame">
+    <HudCallsign Label="FAULT" Value="An error occurred while processing your request." Meta="@_metaLine" />
+
+    @if (ShowRequestId)
+    {
+        <HudKeyValueGrid>
+            <HudKeyValue K="Request ID" V="@requestId" />
+            <HudKeyValue K="Trace timestamp" V="@_traceTimestamp" />
+        </HudKeyValueGrid>
+    }
+    else
+    {
+        <HudKeyValueGrid>
+            <HudKeyValue K="Trace timestamp" V="@_traceTimestamp" />
+        </HudKeyValueGrid>
+    }
+
+    <p class="error-prose">
+        The application encountered an unhandled error. The fault has been
+        logged. Operator-side telemetry retains the stack trace; client-side
+        details are intentionally minimised for security.
+    </p>
+
+    <p class="error-prose subtle">
+        For local debugging set <code>ASPNETCORE_ENVIRONMENT=Development</code> and
+        restart the app. Never enable the Development environment on a
+        deployed instance — it would expose sensitive exception data to end
+        users.
+    </p>
+
+    <div class="error-actions">
+        <a class="btn primary" href="/">RETURN TO DASHBOARD</a>
+    </div>
+</HudPanel>
+
+@code{
+    [CascadingParameter]
+    public HttpContext? HttpContext { get; set; }
+
+    private string? requestId;
+    private string _traceTimestamp = string.Empty;
+    private string _metaLine = string.Empty;
+
+    private bool ShowRequestId => !string.IsNullOrEmpty(requestId);
+
+    protected override void OnInitialized()
+    {
+        requestId = Activity.Current?.Id ?? HttpContext?.TraceIdentifier;
+        var now = DateTime.UtcNow;
+        _traceTimestamp = now.ToString("u");
+        _metaLine = $"UTC {now:HH:mm:ss}";
+    }
+}

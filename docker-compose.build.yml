@@ -1,0 +1,24 @@
+# Build-from-source override — issue #230 Phase C.
+#
+# The default docker-compose.yml PULLS prebuilt images from GHCR so you don't
+# need the source. Contributors who want to build the images locally instead can
+# layer this override on top:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up --build
+#
+# It re-adds the build: context to the three app services (the base file's
+# image: tags become the local build tags).
+name: superstatus
+services:
+  identity:
+    build:
+      context: .
+      dockerfile: SuperStatus.Identity/Dockerfile
+  api:
+    build:
+      context: .
+      dockerfile: SuperStatus.ApiService/Dockerfile
+  web:
+    build:
+      context: .
+      dockerfile: SuperStatus.Web/Dockerfile

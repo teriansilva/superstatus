@@ -1,0 +1,45 @@
+@using SuperStatus.Data.ViewModels
+
+@*
+    LinkedDeleteBlockedDialog — renders the API's 409 delete-guard payload for
+    ANY linkable entity (#291: webhooks in Phase B, alert profiles in Phase C —
+    one component, parameterized by entity label + LinkedEntitySummary). The
+    entity is still linked, the dialog lists the linked check names, and the
+    only action is Cancel. Unlink-all is deliberately not offered in this
+    phase — checks unlink from their own dialog (Phase D).
+*@
+<MudDialog Class="hud-dialog">
+    <TitleContent>
+        <div class="hud-dialog-head">
+            <span class="tag critical"><span class="led down"></span>DELETE BLOCKED</span>
+            <span class="hud-dialog-name">@Name</span>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        <p class="hud-confirm-msg">
+            "@Name" is linked to @Usage.UsedByCount check@(Usage.UsedByCount == 1 ? "" : "s") and can't be
+            deleted. Unlink this @EntityLabel from each check's dialog first.
+        </p>
+        <ul class="hud-confirm-list">
+            @foreach (var name in Usage.LinkedCheckNames)
+            {
+                <li>@name</li>
+            }
+        </ul>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Variant="Variant.Outlined" Color="Color.Secondary">Cancel</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    /// <summary>Lower-case entity label woven into the copy ("webhook" / "alert profile").</summary>
+    [Parameter] public string EntityLabel { get; set; } = "webhook";
+    [Parameter] public string Name { get; set; } = "";
+    /// <summary>The 409 payload's LinkedEntitySummary (count + check names).</summary>
+    [Parameter] public LinkedEntitySummary Usage { get; set; } = new();
+
+    private void Cancel() => MudDialog.Cancel();
+}

@@ -1,0 +1,55 @@
+@using Humanizer
+@using SuperStatus.Data.Constants
+@using SuperStatus.Web.Components.Hud
+
+@*
+    StatusCheckOverviewCard — one READ-ONLY service row on the public dashboard
+    (#139/#126 mock). State LED + accent left-border, title + URL, latency, the
+    30-day uptime strip, and a link to the detail page.
+
+    Operator actions (add/edit/run/pause) used to live here behind an
+    AuthorizeView menu; #159 Phase 2 moved them to the operator console
+    (/admin) so the public status page stays lean and read-only for everyone.
+*@
+<div class="service-row @LedStatus">
+    <span class="led" aria-hidden="true"></span>
+
+    <div class="title">
+        <a class="name" href="@($"/status/{statusCheck.Id}")">@statusCheck.Title</a>
+        <span class="url">@statusCheck.StatusCheckUrl</span>
+    </div>
+
+    <div class="stat">
+        Latency
+        <span class="v @LatencyTone">@LatencyLabel</span>
+    </div>
+
+    <div class="stat stat-strip">
+        Uptime 30d
+        <StatusCheckHistoricalGraph statusCheck="statusCheck" Preloaded="Historical" />
+    </div>
+
+    <div class="actions">
+        <a href="@($"/status/{statusCheck.Id}")" title="Service detail" aria-label="@($"{statusCheck.Title} detail")">›</a>
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public required StatusCheckViewModel statusCheck { get; set; }
+
+    /// <summary>#226: this card's pre-fetched 30-day strip data, loaded in one
+    /// batched call by the parent list. Null ⇒ the strip falls back to its own
+    /// per-card fetch (e.g. when the card is used outside the dashboard list).</summary>
+    [Parameter]
+    public IReadOnlyList<HistoricalStatusDataOverviewChartViewModel>? Historical { get; set; }
+
+    // up / degraded / down / unknown — drives the row LED + accent left-border.
+    private string LedStatus => ServiceCardState.LedStatus(statusCheck.MostRecentHistoricalStatusCheck?.FailType);
+
+    private long? LatencyMs => statusCheck.MostRecentHistoricalStatusCheck?.ResponseTimeInMs;
+    private string LatencyLabel => LatencyMs is null
+        ? "—"
+        : LatencyMs >= 1000 ? $"{LatencyMs.Value / 1000.0:0.00} s" : $"{LatencyMs.Value:000} ms";
+    private string LatencyTone => LedStatus == "down" ? "down" : "";
+}

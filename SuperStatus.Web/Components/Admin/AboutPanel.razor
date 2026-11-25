@@ -1,0 +1,93 @@
+@*
+    Issue #319: operator-console About page. A Support block (Buy-me-a-coffee) and
+    an About block (brand, tagline, blurb, running version, attribution, source &
+    contact), mirroring the Agent-Sessions settings About page, adapted to
+    SuperStatus. Calm HUD styling — built from HudPanel / HudCallsign + .btn, no
+    MudBlazor and no API round-trip.
+
+    The version is read once from this image's AssemblyInformationalVersionAttribute
+    (stamped at docker build via SUPERSTATUS_VERSION — see the Dockerfiles +
+    release-images.yml). It mirrors SuperStatus.Services' VersionInfo normalization
+    without taking that project reference (Web doesn't reference Services). Local /
+    test builds fall back to the 0.0.0-dev sentinel.
+*@
+@using System.Reflection
+@using SuperStatus.Web.Components.Hud
+
+<HudPanel ExtraClass="about-frame">
+    <HudCallsign Label="SUPPORT" Value="Back the project" />
+    <p class="admin-note">If SuperStatus saves you time, you can support its development.</p>
+    <div class="about-actions">
+        <a class="btn primary about-coffee" href="https://buymeacoffee.com/teriansilva"
+           target="_blank" rel="noopener">
+            <svg class="about-ico" viewBox="0 0 24 24" width="16" height="16" fill="none"
+                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                 aria-hidden="true" focusable="false">
+                <path d="M10 2v2" /><path d="M14 2v2" /><path d="M6 2v2" />
+                <path d="M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1" />
+            </svg>
+            Buy me a coffee
+        </a>
+    </div>
+</HudPanel>
+
+<HudPanel ExtraClass="about-frame">
+    <HudCallsign Label="ABOUT" Value="SuperStatus" Meta="@DisplayVersion" />
+    <p class="about-tagline">Status pages you own</p>
+    <p class="admin-note">
+        A clean, modern status page for your services, incidents and uptime —
+        self-host it for free.
+    </p>
+    <dl class="about-kv">
+        <dt class="k">Version</dt>
+        <dd class="v accent">@DisplayVersion</dd>
+        <dt class="k">Created by</dt>
+        <dd class="v"><a href="https://superstatus.io" target="_blank" rel="noopener">Marcus Braun</a></dd>
+    </dl>
+    <div class="about-links">
+        <a class="about-link" href="https://github.com/teriansilva/superstatus" target="_blank" rel="noopener">
+            <svg class="about-ico" viewBox="0 0 24 24" width="15" height="15" fill="none"
+                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                 aria-hidden="true" focusable="false">
+                <polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" />
+            </svg>
+            Source code
+        </a>
+        <a class="about-link" href="mailto:hello@superstatus.io">
+            <svg class="about-ico" viewBox="0 0 24 24" width="15" height="15" fill="none"
+                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                 aria-hidden="true" focusable="false">
+                <rect x="2" y="4" width="20" height="16" rx="2" />
+                <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+            </svg>
+            hello@@superstatus.io
+        </a>
+    </div>
+</HudPanel>
+
+@code {
+    // Read once from this image's stamped informational version.
+    private static readonly string RawVersion =
+        Assembly.GetEntryAssembly()?
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
+            .InformationalVersion ?? VersionSentinel;
+
+    private const string VersionSentinel = "0.0.0-dev";
+
+    // Strip build metadata (+…) and a leading v/V, mirroring VersionInfo.Normalize.
+    private static string Normalize(string raw)
+    {
+        var v = raw.Trim();
+        var plus = v.IndexOf('+');
+        if (plus >= 0) v = v[..plus];
+        if (v.Length > 1 && (v[0] is 'v' or 'V') && char.IsDigit(v[1])) v = v[1..];
+        v = v.Trim();
+        return v.Length == 0 ? VersionSentinel : v;
+    }
+
+    private static readonly string Version = Normalize(RawVersion);
+
+    // "v1.3.3" for a clean release; the raw token (0.0.0-dev / edge) is shown as-is.
+    private static string DisplayVersion =>
+        Version == "edge" || Version.StartsWith("0.0.0", StringComparison.Ordinal) ? Version : $"v{Version}";
+}

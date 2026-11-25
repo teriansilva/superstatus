@@ -1,0 +1,66 @@
+@*
+    HudPanel — tactical-HUD framed panel (issue #95 Phase 1).
+
+    Wraps ChildContent in a frosted-glass surface with corner brackets.
+
+    Accent variants:
+      - "" (default)  → accent (green) brackets
+      - "primary"     → white brackets, reserved for the *one* hero
+                        frame per page that says "you are here"
+      - "critical"    → red brackets, reserved for active down /
+                        open-incident state. NOT for warnings —
+                        warnings use the default frame.
+
+    Callers can pass `class="..."` and any other HTML attributes via
+    splat attributes; the panel merges them with the required
+    `frame panel <variant>` classes (it does NOT overwrite — see
+    Hermes review on PR #99 for the regression).
+*@
+<div class="@ClassAttr" @attributes="MergedExtraAttributes">
+    <span class="cnr tl"></span><span class="cnr tr"></span>
+    <span class="cnr bl"></span><span class="cnr br"></span>
+    @ChildContent
+</div>
+
+@code {
+    /// <summary>Accent variant. Empty string = default green brackets;
+    /// "primary" = white brackets (page hero); "critical" = red brackets
+    /// (active down / open incident).</summary>
+    [Parameter] public string Accent { get; set; } = "";
+
+    /// <summary>Extra space-separated classes appended after the variant.</summary>
+    [Parameter] public string? ExtraClass { get; set; }
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    private string AccentClass => Accent switch
+    {
+        "primary"  => "primary",
+        "critical" => "critical",
+        _          => ""
+    };
+
+    // Razor's splat semantics: if `AdditionalAttributes` contains a
+    // `class` entry, the rendered `class="..."` literal is overwritten
+    // (last write wins, and the splat comes second). We extract that
+    // caller-supplied class and merge it into the panel's required
+    // classes, then forward the remainder of the splat unchanged.
+    private string CallerClass =>
+        AdditionalAttributes != null
+        && AdditionalAttributes.TryGetValue("class", out var v)
+        && v is string s
+            ? s
+            : string.Empty;
+
+    private string ClassAttr =>
+        string.Join(' ', new[] { "frame", "panel", AccentClass, ExtraClass ?? string.Empty, CallerClass }
+            .Where(c => !string.IsNullOrWhiteSpace(c)));
+
+    private IDictionary<string, object>? MergedExtraAttributes =>
+        AdditionalAttributes == null || !AdditionalAttributes.ContainsKey("class")
+            ? AdditionalAttributes
+            : AdditionalAttributes.Where(kv => kv.Key != "class").ToDictionary(kv => kv.Key, kv => kv.Value);
+}

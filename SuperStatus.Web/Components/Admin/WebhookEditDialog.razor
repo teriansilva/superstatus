@@ -1,0 +1,103 @@
+@using SuperStatus.Data.ViewModels
+@inject StatusApiClient StatusApi
+@inject ISnackbar Snackbar
+
+@*
+    WebhookEditDialog — add/edit one reusable webhook target (#291 Phase B).
+    Mirrors the StatusCheckEditDialog conventions (hud-dialog skin, MudForm
+    validation, Save via the API client). Linked checks are shown read-only:
+    linking/unlinking happens from each check's dialog, not here.
+*@
+<MudDialog Class="hud-dialog">
+    <TitleContent>
+        <div class="hud-dialog-head">
+            <span class="tag accent"><span class="led up"></span>@(Webhook.Id > 0 ? "EDIT WEBHOOK" : "ADD WEBHOOK")</span>
+            <span class="hud-dialog-name">@(string.IsNullOrWhiteSpace(Webhook.Name) ? "New webhook" : Webhook.Name)</span>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        <MudForm @ref="_form">
+            <MudGrid>
+                <MudItem xs="12">
+                    <MudTextField T="string"
+                                  @bind-Value="Webhook.Name"
+                                  Label="Name"
+                                  For="@(() => Webhook.Name)"
+                                  Required="true"
+                                  RequiredError="Name is required." />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField T="string"
+                                  @bind-Value="Webhook.Url"
+                                  Label="URL"
+                                  For="@(() => Webhook.Url)"
+                                  Required="true"
+                                  RequiredError="URL is required."
+                                  InputType="InputType.Url"
+                                  Placeholder="https://hooks.example.com/error" />
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudNumericField T="int"
+                                     @bind-Value="Webhook.ThrottleMinutes"
+                                     Label="Throttle (min)"
+                                     For="@(() => Webhook.ThrottleMinutes)"
+                                     Min="0"
+                                     HelperText="0 = trigger every failure." />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudCheckBox T="bool" @bind-Value="Webhook.IsEnabled" Color="Color.Primary" Label="Enabled" />
+                </MudItem>
+                @if (Webhook.Id > 0)
+                {
+                    <MudItem xs="12">
+                        <p class="hud-dialog-linked">Linked checks: @LinkedNames — read-only; link from each check's dialog.</p>
+                    </MudItem>
+                }
+            </MudGrid>
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Variant="Variant.Outlined" Color="Color.Secondary">Cancel</MudButton>
+        <MudButton OnClick="SubmitAsync" Disabled="@_submitting" Color="Color.Primary" Variant="Variant.Filled">
+            @(!_submitting ? "Save" : "Saving...")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public required WebhookViewModel Webhook { get; set; }
+
+    private MudForm? _form;
+    private bool _submitting;
+
+    private string LinkedNames => Webhook.Usage.LinkedCheckNames.Count > 0
+        ? string.Join(", ", Webhook.Usage.LinkedCheckNames)
+        : "none";
+
+    private async Task SubmitAsync()
+    {
+        if (_form is null) return;
+        await _form.Validate();
+        if (!_form.IsValid) return;
+
+        _submitting = true;
+        try
+        {
+            // Close with the API's echo — it carries the assigned Id, so the
+            // check dialog's quick-create can auto-select the new target (#291 D).
+            var saved = await StatusApi.SaveWebhookAsync(Webhook);
+            MudDialog.Close(DialogResult.Ok(saved));
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Could not save webhook: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _submitting = false;
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+}

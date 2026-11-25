@@ -1,0 +1,62 @@
+/* Admin — tactical operator console (issue #95 Phase 4). */
+/* The console's section rhythm (.admin-console flex/gap, .admin-section,
+   per-panel margin resets) lives in hud-theme.css so /admin and the
+   /ui-gallery operator preview share one cadence. */
+
+::deep .admin-note {
+    color: var(--text-3);
+    font-size: 12px;
+    line-height: 1.6;
+    margin: var(--s-3, 12px) 0 0;
+}
+
+/* #266: in-page tab bar + panes for the console sections. The nav and panes are
+   rendered by Admin.razor itself, so these are scoped (no ::deep needed). */
+.console-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    margin-top: var(--s-3, 12px);
+    border-bottom: 1px solid var(--line);
+}
+
+.console-tab {
+    appearance: none;
+    background: transparent;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    padding: 8px 16px;
+    font: inherit;
+    font-size: 13px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-3);
+    cursor: pointer;
+    transition: color 0.12s ease, border-color 0.12s ease;
+}
+
+.console-tab:hover {
+    color: var(--text-1, #e8eef2);
+}
+
+.console-tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+}
+
+.console-tab:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+/* Panes follow the console's 32px vertical rhythm; [hidden] must beat the flex. */
+.tab-pane {
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+}
+
+.tab-pane[hidden] {
+    display: none;
+}

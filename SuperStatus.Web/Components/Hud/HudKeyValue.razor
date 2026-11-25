@@ -1,0 +1,35 @@
+@*
+    HudKeyValue — a single row inside a `.kv` two-column grid.
+
+    Wrap multiple <HudKeyValue> rows in a `<div class="kv">…</div>`
+    container (or use the convenience HudKeyValueGrid below) — the
+    primitive itself emits just the two cells with semantic classes.
+
+    Tone values map to status colors on the value cell:
+        "up" | "degraded" | "down" | "" (default).
+*@
+<span class="k">
+    @if (!string.IsNullOrEmpty(Led))
+    {
+        <HudLed Status="@Led" />
+    }
+    @K
+</span>
+<span class="v @ToneClass">@V</span>
+
+@code {
+    [Parameter, EditorRequired] public string K { get; set; } = "";
+    [Parameter, EditorRequired] public string V { get; set; } = "";
+
+    /// <summary>Optional LED status to render before the key.</summary>
+    [Parameter] public string? Led { get; set; }
+
+    /// <summary>"up" | "degraded" | "down" | "" (default).</summary>
+    [Parameter] public string Tone { get; set; } = "";
+
+    private string ToneClass => Tone switch
+    {
+        "up" or "degraded" or "down" => Tone,
+        _                            => ""
+    };
+}

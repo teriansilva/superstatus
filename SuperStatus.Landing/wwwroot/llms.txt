@@ -1,0 +1,49 @@
+# SuperStatus
+
+> SuperStatus is clean, modern, self-hostable status-page software. Run your own
+> public status page — HTTP/TCP/keyword and AI/LLM checks, SLAs, an
+> incident timeline, alerts to Slack/Discord/Telegram/email/webhooks, custom
+> branding and light/dark — on infrastructure you own. Free forever to self-host
+> (Docker), with one-click updates from the console; a managed cloud tier is planned.
+
+## What it is
+
+- Open-source status-page software (BUSL-1.1 licensed) you host yourself.
+- A public status page your users can check, plus an operator console to manage
+  status checks, incidents, branding, and alerting.
+- Built on .NET / Blazor and PostgreSQL; ships as Docker images and runs with a
+  single `docker compose up`.
+
+## Key features
+
+- Checks of every kind, each on its own schedule with per-service history:
+  HTTP / TCP / keyword probes and AI/LLM canaries against any OpenAI-compatible
+  endpoint (time-to-first-token + throughput).
+- SLAs: per-service uptime targets and slow-response thresholds that drive the
+  day colours and published 30-day uptime.
+- Incident timeline, including optional AI-drafted incident summaries.
+- Alerting to Slack, Discord, Telegram, email (SMTP), browser Web Push, and any
+  outbound webhook — routed through per-check alert profiles, with recovery
+  notices and optional auto-incidents.
+- Self-serve updates: update from the console with one click or a nightly
+  schedule, no server access required.
+- Fully ownable: custom branding (title, logo, accent), light & dark themes,
+  no vendor lock-in, export-friendly.
+
+## Get started
+
+- Self-host (one-liner): `curl -fsSL https://superstatus.superstatus.io/install.sh | sh`
+- Landing & docs: https://superstatus.superstatus.io/
+- Source code: https://github.com/teriansilva/superstatus
+
+## Pricing (cloud tiers planned)
+
+- Self-host: €0 / forever — run it on your own infrastructure, unlimited checks, full source.
+- SuperStatus Cloud: from €9 / month — we host, update, and back it up, with TLS and a custom domain.
+- SuperStatus Cloud Pro: from €29 / month — adds managed AI (incident drafts and summaries we
+  run on your behalf) and worldwide monitoring (agents that ping your services from many regions,
+  not just one location), plus more checks, history, team seats, and priority support.
+
+## Contact
+
+- Project home: https://superstatus.superstatus.io/

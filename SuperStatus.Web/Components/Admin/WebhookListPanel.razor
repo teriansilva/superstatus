@@ -1,0 +1,209 @@
+@using SuperStatus.Data.Constants
+@using SuperStatus.Data.ViewModels
+@using SuperStatus.Web.Components.Hud
+@inject StatusApiClient StatusApi
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+@*
+    WebhookListPanel — operator management table for reusable webhook targets
+    (#291 Phase B). Lives on the console's Webhooks tab above the delivery log.
+    Add / Edit / Test-fire / Enable-Disable / Delete; deleting a linked target
+    is blocked by the API (409) and the confirm lists the linked checks —
+    unlinking happens from each check's dialog (Phase D), never here.
+*@
+<HudPanel ExtraClass="admin-frame webhook-list-frame">
+    <div class="wh-head">
+        <HudCallsign Label="WEBHOOKS" Value="Outbound endpoints" />
+        @if (_webhooks is { Count: > 0 })
+        {
+            <button class="btn accent" @onclick="AddAsync">+ Add webhook</button>
+        }
+    </div>
+
+    @if (_webhooks is null)
+    {
+        <p class="wh-note">Loading…</p>
+    }
+    else if (_webhooks.Count == 0)
+    {
+        <div class="wh-empty">
+            <div class="wh-empty-glyph" aria-hidden="true">[ — ]</div>
+            <p class="wh-empty-copy">No webhooks yet — create one to notify external systems when a check fails.</p>
+            <button class="btn accent" @onclick="AddAsync">+ Add webhook</button>
+        </div>
+    }
+    else
+    {
+        <div class="wh-table">
+            <div class="wh-row wh-h">
+                <span>Name</span><span>URL</span><span>Used by</span><span>State</span><span></span>
+            </div>
+            @foreach (var w in _webhooks)
+            {
+                <div class="wh-row @(w.IsEnabled ? "" : "off")">
+                    <span class="wh-name">@w.Name</span>
+                    <span class="wh-url" title="@w.Url">@w.Url</span>
+                    <span class="wh-used">@w.Usage.UsedByCount @(w.Usage.UsedByCount == 1 ? "check" : "checks")</span>
+                    <span class="wh-state"><HudTag Status="@(w.IsEnabled ? "up" : "unknown")">@(w.IsEnabled ? "ON" : "OFF")</HudTag></span>
+                    <span class="wh-actions">
+                        <button type="button" class="wh-link" @onclick="() => EditAsync(w)">Edit</button>
+                        <span class="wh-sep">·</span>
+                        <button type="button" class="wh-link" disabled="@_busy" @onclick="() => TestFireAsync(w)">Test-fire</button>
+                        <span class="wh-sep">·</span>
+                        <button type="button" class="wh-link" disabled="@_busy" @onclick="() => ToggleEnabledAsync(w)">@(w.IsEnabled ? "Disable" : "Enable")</button>
+                        <span class="wh-sep">·</span>
+                        <button type="button" class="wh-link danger" disabled="@_busy" @onclick="() => DeleteAsync(w)">Delete</button>
+                    </span>
+                </div>
+            }
+        </div>
+        <p class="wh-note">
+            Delete is blocked while a webhook is linked — the confirm lists the linked checks;
+            unlink from each check's dialog first. Disabled webhooks stay linked and are
+            skipped at dispatch (logged).
+        </p>
+    }
+</HudPanel>
+
+@code {
+    private List<WebhookViewModel>? _webhooks;
+    private bool _busy;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync() => _webhooks = await StatusApi.GetWebhooksAsync();
+
+    private async Task AddAsync()
+    {
+        var vm = new WebhookViewModel();
+        var options = new DialogOptions { CloseOnEscapeKey = true, CloseButton = true };
+        var parameters = new DialogParameters<WebhookEditDialog> { { x => x.Webhook, vm } };
+        var dialog = await DialogService.ShowAsync<WebhookEditDialog>("Add webhook", parameters, options);
+        if ((await dialog.Result) is { Canceled: false }) await LoadAsync();
+    }
+
+    private async Task EditAsync(WebhookViewModel webhook)
+    {
+        // Edit a copy so a cancelled dialog can't leave half-typed values on the row.
+        var vm = new WebhookViewModel
+        {
+            Id = webhook.Id,
+            Name = webhook.Name,
+            Url = webhook.Url,
+            IsEnabled = webhook.IsEnabled,
+            ThrottleMinutes = webhook.ThrottleMinutes,
+            CreatedUtc = webhook.CreatedUtc,
+            Usage = webhook.Usage,
+        };
+        var options = new DialogOptions { CloseOnEscapeKey = true, CloseButton = true };
+        var parameters = new DialogParameters<WebhookEditDialog> { { x => x.Webhook, vm } };
+        var dialog = await DialogService.ShowAsync<WebhookEditDialog>(webhook.Name, parameters, options);
+        if ((await dialog.Result) is { Canceled: false }) await LoadAsync();
+    }
+
+    // One wire attempt through the real dispatch executor. The result surfaces
+    // here inline — test fires are NOT written to the execution log (the log's
+    // StatusCheckId is a required FK and a test has no triggering check).
+    private async Task TestFireAsync(WebhookViewModel webhook)
+    {
+        if (_busy) return;
+        _busy = true;
+        try
+        {
+            var result = await StatusApi.TestFireWebhookAsync(webhook.Id);
+            if (result is null)
+            {
+                Snackbar.Add($"Webhook '{webhook.Name}' no longer exists.", Severity.Warning);
+                await LoadAsync();
+            }
+            else if (result.Outcome == WebhookOutcome.Success)
+            {
+                Snackbar.Add($"Test-fired '{webhook.Name}' — HTTP {result.HttpStatusCode}, {result.ResponseTimeMs} ms.", Severity.Success);
+            }
+            else
+            {
+                string detail = result.HttpStatusCode > 0 ? $"HTTP {result.HttpStatusCode}" : result.Outcome.ToString();
+                Snackbar.Add($"Test-fire '{webhook.Name}' failed — {detail}, {result.ResponseTimeMs} ms. {result.ErrorMessage}".TrimEnd(), Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Test-fire failed for '{webhook.Name}': {ex.Message}", Severity.Error);
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task ToggleEnabledAsync(WebhookViewModel webhook)
+    {
+        if (_busy) return;
+        _busy = true;
+        try
+        {
+            var newState = await StatusApi.SetWebhookEnabledAsync(webhook.Id, !webhook.IsEnabled);
+            if (newState is null)
+            {
+                Snackbar.Add($"Webhook '{webhook.Name}' no longer exists.", Severity.Warning);
+                await LoadAsync();
+            }
+            else
+            {
+                webhook.IsEnabled = newState.Value;
+                Snackbar.Add($"Webhook '{webhook.Name}' {(newState.Value ? "enabled" : "disabled")}.", Severity.Normal);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Could not change '{webhook.Name}': {ex.Message}", Severity.Error);
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteAsync(WebhookViewModel webhook)
+    {
+        if (_busy) return;
+
+        // Unlinked → the usual destructive confirm before anything is deleted.
+        // Linked → go straight to the API: the DELETE answers 409 with the
+        // authoritative LinkedEntitySummary, rendered by the blocked dialog
+        // (whose only action is Cancel — unlink-all is deliberately not offered).
+        if (webhook.Usage.UsedByCount == 0)
+        {
+            var parameters = new DialogParameters<HudConfirmDialog>
+            {
+                { x => x.Title, $"Delete {webhook.Name}?" },
+                { x => x.Tag, "Delete webhook" },
+                { x => x.Message, $"This permanently deletes the webhook \"{webhook.Name}\" ({webhook.Url}). It is not linked to any checks. This cannot be undone." },
+                { x => x.ConfirmText, "Delete" },
+                { x => x.Danger, true },
+            };
+            var options = new DialogOptions { CloseOnEscapeKey = true, CloseButton = true };
+            var dialog = await DialogService.ShowAsync<HudConfirmDialog>($"Delete {webhook.Name}", parameters, options);
+            if ((await dialog.Result) is not { Canceled: false, Data: true }) return;
+        }
+
+        try
+        {
+            var result = await StatusApi.DeleteWebhookAsync(webhook.Id);
+            if (result.BlockedBy is not null)
+            {
+                var parameters = new DialogParameters<LinkedDeleteBlockedDialog>
+                {
+                    { x => x.EntityLabel, "webhook" },
+                    { x => x.Name, webhook.Name },
+                    { x => x.Usage, result.BlockedBy },
+                };
+                var options = new DialogOptions { CloseOnEscapeKey = true, CloseButton = true };
+                await DialogService.ShowAsync<LinkedDeleteBlockedDialog>($"Delete blocked", parameters, options);
+                return;
+            }
+            Snackbar.Add(result.Deleted ? $"Deleted webhook '{webhook.Name}'." : $"Webhook '{webhook.Name}' no longer exists.",
+                result.Deleted ? Severity.Normal : Severity.Warning);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Delete failed for '{webhook.Name}': {ex.Message}", Severity.Error);
+        }
+    }
+}

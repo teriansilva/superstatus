@@ -1,0 +1,73 @@
+﻿@using SuperStatus.Configuration
+@using SuperStatus.Data.Entities
+@using SuperStatus.Data.ViewModels
+@inject StatusApiClient StatusApi
+@implements IAsyncDisposable
+
+@* #139/#126: full-width HUD service rows (`.service-list`) instead of the
+   narrow centered MudGrid of cards. *@
+@if (statusCheckSet == null)
+{
+    <div class="service-list-loading">Loading status…</div>
+}
+else
+{
+    <div class="service-list">
+        @foreach (var statusCheck in statusCheckSet.Results)
+        {
+            <StatusCheckOverviewCard statusCheck="statusCheck"
+                                     Historical="@(_historicalByCheck.GetValueOrDefault(statusCheck.Id))" />
+        }
+    </div>
+}
+
+@code {
+    private IPagedResult<StatusCheckViewModel>? statusCheckSet;
+    // #226: all cards' 30-day strip data, fetched in ONE batched call and handed to
+    // each card — replacing the per-card N+1 that exhausted the API DB pool.
+    private Dictionary<long, List<HistoricalStatusDataOverviewChartViewModel>> _historicalByCheck = new();
+    private PeriodicTimer? timer;
+    private CancellationTokenSource cts = new CancellationTokenSource();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadStatusChecksAsync();
+
+        timer = new PeriodicTimer(TimeSpan.FromSeconds(SuperStatusConfig.StatusCheckViewRefreshIntervalInSeconds));
+
+        _ = UpdateDataAsync();
+    }
+
+    private async Task UpdateDataAsync()
+    {
+        try
+        {
+            while (await timer!.WaitForNextTickAsync(cts.Token))
+            {
+                await LoadStatusChecksAsync();
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Handle cancellation if needed
+        }
+    }
+
+    private async Task LoadStatusChecksAsync()
+    {
+        statusCheckSet = await StatusApi.GetStatusAsync();
+        // One batched fetch for every card's strip (not one call per card).
+        _historicalByCheck = await StatusApi.GetHistoricalStatusDataForAllAsync();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (timer is not null)
+        {
+            cts.Cancel();
+            timer.Dispose();
+            cts.Dispose();
+        }
+    }
+}

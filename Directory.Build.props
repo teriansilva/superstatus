@@ -1,0 +1,20 @@
+<Project>
+
+  <!--
+    Issue #249 (epic #248): stamp the running version into the assemblies so the
+    app can report it (GET /api/version) without Docker introspection.
+
+    Overridden at image-build time via `-p:InformationalVersion=$VERSION` (see the
+    per-project Dockerfiles + .forgejo/workflows/release-images.yml, which passes
+    the release tag / `edge`). Local & source builds get the dev sentinel.
+
+    IncludeSourceRevisionInInformationalVersion=false keeps the +<commit> suffix
+    off the string so the runtime reads a clean value (Normalize strips it anyway,
+    but this keeps logs/labels tidy).
+  -->
+  <PropertyGroup>
+    <InformationalVersion Condition="'$(InformationalVersion)' == ''">0.0.0-dev</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
+</Project>

@@ -1,0 +1,40 @@
+# Public-surface filter — issue #219 (pre-publish security gate).
+#
+# Paths marked `export-ignore` are stripped by `git archive`, so they are
+# excluded from the filtered flat-snapshot that the publish workflow
+# (.forgejo/workflows/publish-public.yml) pushes to the PUBLIC GitHub mirror.
+#
+# The PRIVATE Forgejo repo keeps EVERYTHING; only the public surface is
+# filtered. This is the single list to maintain — add one line per new
+# org-internal path so the private repo and the public mirror cannot drift.
+#
+# A safety-net check in the publish workflow hard-fails if any of these paths
+# ever appears in the produced snapshot, so a typo here cannot silently leak.
+
+# --- Org-internal agent workflow + CI/deploy automation -------------------
+# (bot identities, Hermes webhook, runner hosts, deploy targets)
+.forgejo/                  export-ignore
+CLAUDE.md                  export-ignore
+AGENTS.md                  export-ignore
+docs/agent-workflow.md     export-ignore
+docs/releasing.md          export-ignore
+
+# --- Org-internal deployment ----------------------------------------------
+# (internal RFC1918 IPs, hostnames, reverse-proxy/TLS topology; the public
+#  equivalents are docs/self-hosting.md / docker-compose.yml / .env.example)
+docs/deployment.md         export-ignore
+docker-compose.staging.yml export-ignore
+docker-compose.prod.yml    export-ignore
+docker-compose.landing.yml export-ignore
+.env.staging               export-ignore
+.env.production            export-ignore
+
+# --- Internal design assets -----------------------------------------------
+# (mockups + visual-regression harness reference real internal services/brand)
+mockups/                   export-ignore
+web/visual/                export-ignore
+
+# --- Vendored third-party assets (#349) -----------------------------------
+# TOAST UI Editor, kept pristine (do not hand-edit upstream). Exclude from the
+# whitespace gate (`git diff --check`) and from language stats.
+SuperStatus.Web/wwwroot/lib/**  -whitespace linguist-vendored
